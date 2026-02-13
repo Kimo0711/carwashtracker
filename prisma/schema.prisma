@@ -1,0 +1,46 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+
+model User {
+  id         Int      @id @default(autoincrement())
+  telegramId String   @unique
+  username   String?
+  role       String   @default("EMPLOYEE") // "OWNER" or "EMPLOYEE"
+  createdAt  DateTime @default(now())
+}
+
+model Wash {
+  id              Int      @id @default(autoincrement())
+  originalMessage String
+  parsedCar       String?
+  parsedPrice     Float?
+  parsedService   String?
+  carType         String?  // New field
+  addons          String?  // New field
+  senderName      String
+  senderId        String
+  createdAt       DateTime @default(now())
+}
+
+model BotSession {
+  id              Int      @id @default(autoincrement())
+  chatId          String   @unique
+  step            String   @default("start") // "start", "awaiting_price", "awaiting_addon", etc.
+  carType         String?
+  service         String?
+  basePrice       Float?
+  addons          String?  // JSON string or comma-separated list
+  totalAddonPrice Float    @default(0)
+  updatedAt       DateTime @updatedAt
+}
+
