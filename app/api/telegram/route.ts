@@ -154,11 +154,18 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const testOwnerId = searchParams.get('test_owner_id');
 
-    if (testOwnerId && bot) {
+    console.log(`GET /api/telegram called. params: ${searchParams.toString()}`);
+
+    if (testOwnerId) {
+        console.log(`Attempting to send test message to ${testOwnerId}`);
+        if (!bot) {
+            return NextResponse.json({ success: false, error: 'Bot not initialized (check token)' });
+        }
         try {
             await bot.sendMessage(testOwnerId, "🔔 **System Update:** Bot communication verified from Vercel.");
             return NextResponse.json({ success: true, message: `Test message sent to ${testOwnerId}` });
         } catch (error: any) {
+            console.error('Test send failed:', error);
             return NextResponse.json({ success: false, error: error.message });
         }
     }
@@ -195,10 +202,10 @@ export async function POST(req: Request) {
             }
 
             const user = await getAuthorizedUser(telegramId, msg.from.username, msg.from.first_name);
-            console.log(`User status: ${user ? `${user.username} (${user.role})` : 'UNAUTHORIZED'}`);
+            console.log('Authorized User search result:', JSON.stringify(user));
 
             if (!user) {
-                console.log(`Sending unauthorized response to ${chatId}`);
+                console.log(`User ${telegramId} is NOT authorized.`);
                 await bot.sendMessage(chatId, "🚫 **Unauthorized.** Please ask the owner to add you as an employee.");
                 return NextResponse.json({ ok: true });
             }
