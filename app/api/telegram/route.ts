@@ -1,8 +1,14 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import TelegramBot from 'node-telegram-bot-api';
 import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+export const dynamic = 'force-dynamic';
+
+// Singleton Prisma Client
+const globalForPrisma = global as unknown as { prisma: PrismaClient };
+const prisma = globalForPrisma.prisma || new PrismaClient();
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+
 const token = process.env.TELEGRAM_BOT_TOKEN;
 
 // Initialize bot for sending messages (stateless)
@@ -150,30 +156,34 @@ async function saveWash(chatId: string, user: any, session: any, price: number) 
 
 // --- Main Route Handler ---
 
-export async function GET(req: Request) {
-    const { searchParams } = new URL(req.url);
+export async function GET(req: NextRequest) {
+    const searchParams = req.nextUrl.searchParams;
     const testOwnerId = searchParams.get('test_owner_id');
 
-    console.log(`GET /api/telegram called. params: ${searchParams.toString()}`);
+    console.log(`GET /api/telegram called. test_owner_id: ${testOwnerId}`);
 
     if (testOwnerId) {
-        console.log(`Attempting to send test message to ${testOwnerId}`);
         if (!bot) {
-            return NextResponse.json({ success: false, error: 'Bot not initialized (check token)' });
+            return NextResponse.json({ success: false, error: 'Bot not initialized' }, { status: 500 });
         }
         try {
             await bot.sendMessage(testOwnerId, "🔔 **System Update:** Bot communication verified from Vercel.");
-            return NextResponse.json({ success: true, message: `Test message sent to ${testOwnerId}` });
+            return NextResponse.json({
+                success: true,
+                message: `Test message sent to ${testOwnerId}`,
+                bot_username: (await bot.getMe()).username
+            });
         } catch (error: any) {
             console.error('Test send failed:', error);
-            return NextResponse.json({ success: false, error: error.message });
+            return NextResponse.json({ success: false, error: error.message }, { status: 500 });
         }
     }
 
     return NextResponse.json({
         status: 'active',
         bot_configured: !!token,
-        time: new Date().toISOString()
+        time: new Date().toISOString(),
+        build_id: 'debug-check-3'
     });
 }
 
