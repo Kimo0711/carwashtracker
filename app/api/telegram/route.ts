@@ -88,23 +88,23 @@ async function resetSession(chatId: string) {
     });
 }
 
-function showCarTypeMenu(chatId: string) {
+async function showCarTypeMenu(chatId: string) {
     const keyboard = CAR_TYPES.map(type => ([{ text: type, callback_data: `type:${type}` }]));
 
-    bot.sendMessage(chatId, "🚗 **Select Car Type:**", {
+    await bot.sendMessage(chatId, "🚗 **Select Car Type:**", {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: keyboard }
     });
 }
 
-function showServiceMenu(chatId: string, type: string) {
+async function showServiceMenu(chatId: string, type: string) {
     const keyboard = SERVICES.map(service => {
         const price = PRICES[type] && PRICES[type][service];
         const label = price ? `${service} ($${price})` : service;
         return [{ text: label, callback_data: `service:${service}` }];
     });
 
-    bot.sendMessage(chatId, `🚗 **Type:** ${type}\n🧼 **Select Service:**`, {
+    await bot.sendMessage(chatId, `🚗 **Type:** ${type}\n🧼 **Select Service:**`, {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: keyboard }
     });
@@ -137,11 +137,11 @@ async function saveWash(chatId: string, user: any, session: any, price: number) 
             },
         });
 
-        bot.sendMessage(chatId, `✅ **Saved Entry!**\n\n🚗 **Type:** ${savedWash.carType}\n🧼 **Service:** ${session.service}${addonText}${addonPriceText}\n💰 **Total Price:** $${savedWash.parsedPrice?.toFixed(2)}\n\n/start to log another one.`);
+        await bot.sendMessage(chatId, `✅ **Saved Entry!**\n\n🚗 **Type:** ${savedWash.carType}\n🧼 **Service:** ${session.service}${addonText}${addonPriceText}\n💰 **Total Price:** $${savedWash.parsedPrice?.toFixed(2)}\n\n/start to log another one.`);
         await resetSession(chatId);
     } catch (error) {
         console.error('Save Error:', error);
-        bot.sendMessage(chatId, "❌ Database error. Please try again.");
+        await bot.sendMessage(chatId, "❌ Database error. Please try again.");
         await resetSession(chatId);
     }
 }
@@ -215,8 +215,9 @@ export async function POST(req: Request) {
             }
 
             if (text === '/start' || text.toLowerCase() === 'cancel' || text.toLowerCase() === 'menu') {
+                console.log(`Command received: ${text} from ${chatId}`);
                 await resetSession(chatId);
-                showCarTypeMenu(chatId);
+                await showCarTypeMenu(chatId);
                 return NextResponse.json({ ok: true });
             }
 
@@ -273,7 +274,7 @@ export async function POST(req: Request) {
                     return [{ text: label, callback_data: `service:${service}` }];
                 });
 
-                bot.editMessageText(`🚗 **Selected Type:** ${type}\n\n🧼 **Now select Service:**`, {
+                await bot.editMessageText(`🚗 **Selected Type:** ${type}\n\n🧼 **Now select Service:**`, {
                     chat_id: chatId,
                     message_id: messageId,
                     parse_mode: 'Markdown',
@@ -297,7 +298,7 @@ export async function POST(req: Request) {
                     // Refresh session for passing to showAddonMenu if needed, but we have data
                     const keyboard = showAddonMenu(chatId, messageId, session.carType!);
 
-                    bot.editMessageText(`🚗 **Type:** ${session.carType}\n🧼 **Service:** ${service} ($${price})\n\n✨ **Select Add-ons (you can select multiple):**`, {
+                    await bot.editMessageText(`🚗 **Type:** ${session.carType}\n🧼 **Service:** ${service} ($${price})\n\n✨ **Select Add-ons (you can select multiple):**`, {
                         chat_id: chatId,
                         message_id: messageId,
                         parse_mode: 'Markdown',
@@ -305,7 +306,7 @@ export async function POST(req: Request) {
                     });
                 } else {
                     await updateSession(chatId, { step: 'awaiting_price' });
-                    bot.editMessageText(`🚗 **Type:** ${session.carType}\n🧼 **Service:** ${service}\n\n💰 **Please type the PRICE ($):**`, {
+                    await bot.editMessageText(`🚗 **Type:** ${session.carType}\n🧼 **Service:** ${service}\n\n💰 **Please type the PRICE ($):**`, {
                         chat_id: chatId,
                         message_id: messageId,
                         parse_mode: 'Markdown'
@@ -326,7 +327,7 @@ export async function POST(req: Request) {
                     const addonsText = currentAddons.length > 0 ? ` + ${currentAddons.join(' + ')}` : '';
                     const addonsPriceText = (session.totalAddonPrice || 0) > 0 ? ` (+$${session.totalAddonPrice})` : '';
 
-                    bot.editMessageText(`🚗 **Type:** ${session.carType}\n🧼 **Service:** ${session.service}${addonsText}${addonsPriceText}\n💰 **Total:** $${totalPrice}\n\n✅ *Saving...*`, {
+                    await bot.editMessageText(`🚗 **Type:** ${session.carType}\n🧼 **Service:** ${session.service}${addonsText}${addonsPriceText}\n💰 **Total:** $${totalPrice}\n\n✅ *Saving...*`, {
                         chat_id: chatId,
                         message_id: messageId,
                         parse_mode: 'Markdown'
@@ -335,7 +336,7 @@ export async function POST(req: Request) {
                     await saveWash(chatId, user, session, totalPrice);
                 } else {
                     if (currentAddons.includes(addon)) {
-                        bot.answerCallbackQuery(query.id, {
+                        await bot.answerCallbackQuery(query.id, {
                             text: `❌ ${addon} already added!`,
                             show_alert: false
                         });
@@ -357,7 +358,7 @@ export async function POST(req: Request) {
                         const addonsText = currentAddons.length > 0 ? `\n📋 **Selected:** ${currentAddons.join(', ')}` : '';
 
                         const keyboard = showAddonMenu(chatId, messageId, session.carType!);
-                        bot.editMessageText(`🚗 **Type:** ${session.carType}\n🧼 **Service:** ${session.service} ($${session.basePrice})${addonsText}\n💰 **Current Total:** $${currentTotal}\n\n✨ **Add another or finish:**`, {
+                        await bot.editMessageText(`🚗 **Type:** ${session.carType}\n🧼 **Service:** ${session.service} ($${session.basePrice})${addonsText}\n💰 **Current Total:** $${currentTotal}\n\n✨ **Add another or finish:**`, {
                             chat_id: chatId,
                             message_id: messageId,
                             parse_mode: 'Markdown',
@@ -367,7 +368,7 @@ export async function POST(req: Request) {
                 }
             }
 
-            bot.answerCallbackQuery(query.id);
+            await bot.answerCallbackQuery(query.id);
         }
 
         return NextResponse.json({ ok: true });
