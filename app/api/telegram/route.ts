@@ -150,7 +150,19 @@ async function saveWash(chatId: string, user: any, session: any, price: number) 
 
 // --- Main Route Handler ---
 
-export async function GET() {
+export async function GET(req: Request) {
+    const { searchParams } = new URL(req.url);
+    const testOwnerId = searchParams.get('test_owner_id');
+
+    if (testOwnerId && bot) {
+        try {
+            await bot.sendMessage(testOwnerId, "🔔 **System Update:** Bot communication verified from Vercel.");
+            return NextResponse.json({ success: true, message: `Test message sent to ${testOwnerId}` });
+        } catch (error: any) {
+            return NextResponse.json({ success: false, error: error.message });
+        }
+    }
+
     return NextResponse.json({
         status: 'active',
         bot_configured: !!token,
