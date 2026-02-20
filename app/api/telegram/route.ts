@@ -149,21 +149,30 @@ async function saveWash(chatId: string, user: any, session: any, price: number) 
 // --- Main Route Handler ---
 
 export async function POST(req: Request) {
+    console.log('--- TELEGRAM WEBHOOK START ---');
     try {
         const body = await req.json();
+        console.log('Update received:', JSON.stringify(body));
 
         if (body.message) {
             const msg = body.message;
             const chatId = msg.chat.id.toString();
             const text = msg.text;
-            const telegramId = msg.from.id.toString();
+            const telegramId = msg.from?.id ? msg.from.id.toString() : null;
 
-            if (!text || msg.from.is_bot) return NextResponse.json({ ok: true });
+            console.log(`Processing message: "${text}" from ${telegramId} in chat ${chatId}`);
+
+            if (!text || !telegramId || msg.from.is_bot) {
+                console.log('Skipping message: invalid text/id or bot sender');
+                return NextResponse.json({ ok: true });
+            }
 
             const user = await getAuthorizedUser(telegramId, msg.from.username, msg.from.first_name);
+            console.log(`User status: ${user ? `${user.username} (${user.role})` : 'UNAUTHORIZED'}`);
 
             if (!user) {
-                bot.sendMessage(chatId, "🚫 **Unauthorized.** Please ask the owner to add you as an employee.");
+                console.log(`Sending unauthorized response to ${chatId}`);
+                await bot.sendMessage(chatId, "🚫 **Unauthorized.** Please ask the owner to add you as an employee.");
                 return NextResponse.json({ ok: true });
             }
 
@@ -171,7 +180,7 @@ export async function POST(req: Request) {
             if (text.startsWith('/addemployee') && user.role === 'OWNER') {
                 const parts = text.split(' ');
                 if (parts.length < 2) {
-                    bot.sendMessage(chatId, "📝 **Usage:** `/addemployee [telegram_id]`\nYou can get a user's ID using @userinfobot");
+                    await bot.sendMessage(chatId, "📝 **Usage:** `/addemployee [telegram_id]`\nYou can get a user's ID using @userinfobot");
                     return NextResponse.json({ ok: true });
                 }
                 const empId = parts[1];
@@ -181,9 +190,9 @@ export async function POST(req: Request) {
                         update: { role: 'EMPLOYEE' },
                         create: { telegramId: empId, role: 'EMPLOYEE', username: 'New Employee' }
                     });
-                    bot.sendMessage(chatId, `✅ User ${empId} has been added as an **EMPLOYEE**.`);
+                    await bot.sendMessage(chatId, `✅ User ${empId} has been added as an **EMPLOYEE**.`);
                 } catch (error) {
-                    bot.sendMessage(chatId, "❌ Error adding employee.");
+                    await bot.sendMessage(chatId, "❌ Error adding employee.");
                 }
                 return NextResponse.json({ ok: true });
             }
@@ -191,15 +200,15 @@ export async function POST(req: Request) {
             if (text.startsWith('/removeemployee') && user.role === 'OWNER') {
                 const parts = text.split(' ');
                 if (parts.length < 2) {
-                    bot.sendMessage(chatId, "📝 **Usage:** `/removeemployee [telegram_id]`");
+                    await bot.sendMessage(chatId, "📝 **Usage:** `/removeemployee [telegram_id]`");
                     return NextResponse.json({ ok: true });
                 }
                 const empId = parts[1];
                 try {
                     await prisma.user.delete({ where: { telegramId: empId } });
-                    bot.sendMessage(chatId, `✅ User ${empId} has been removed.`);
+                    await bot.sendMessage(chatId, `✅ User ${empId} has been removed.`);
                 } catch (error) {
-                    bot.sendMessage(chatId, "❌ Error removing employee (user might not exist).");
+                    await bot.sendMessage(chatId, "❌ Error removing employee (user might not exist).");
                 }
                 return NextResponse.json({ ok: true });
             }
@@ -210,12 +219,12 @@ export async function POST(req: Request) {
                 users.forEach(u => {
                     list += `• ${u.username} (${u.telegramId}) - **${u.role}**\n`;
                 });
-                bot.sendMessage(chatId, list, { parse_mode: 'Markdown' });
+                await bot.sendMessage(chatId, list, { parse_mode: 'Markdown' });
                 return NextResponse.json({ ok: true });
             }
 
             if (text === '/start' || text.toLowerCase() === 'cancel' || text.toLowerCase() === 'menu') {
-                console.log(`Command received: ${text} from ${chatId}`);
+                console.log(`Resetting session and showing menu for ${chatId}`);
                 await resetSession(chatId);
                 await showCarTypeMenu(chatId);
                 return NextResponse.json({ ok: true });
@@ -223,10 +232,12 @@ export async function POST(req: Request) {
 
             // State Handling for Text Input (Price)
             const session = await getSession(chatId);
+            console.log(`Current session step: ${session.step}`);
+
             if (session.step === 'awaiting_price') {
                 const price = parseFloat(text.replace('$', '').trim());
                 if (isNaN(price)) {
-                    bot.sendMessage(chatId, "⚠️ Please enter a valid number for the price.");
+                    await bot.sendMessage(chatId, "⚠️ Please enter a valid number for the price.");
                     return NextResponse.json({ ok: true });
                 }
 
@@ -239,12 +250,12 @@ export async function POST(req: Request) {
                 });
 
                 const keyboard = showAddonMenu(chatId, undefined, session.carType!);
-                bot.sendMessage(chatId, `🚗 **Type:** ${session.carType}\n🧼 **Service:** ${session.service} ($${price})\n\n✨ **Select Add-ons (you can select multiple):**`, {
+                await bot.sendMessage(chatId, `🚗 **Type:** ${session.carType}\n🧼 **Service:** ${session.service} ($${price})\n\n✨ **Select Add-ons (you can select multiple):**`, {
                     parse_mode: 'Markdown',
                     reply_markup: { inline_keyboard: keyboard }
                 });
             } else if (session.step === 'start') {
-                showCarTypeMenu(chatId);
+                await showCarTypeMenu(chatId);
             }
 
         } else if (body.callback_query) {
@@ -254,9 +265,12 @@ export async function POST(req: Request) {
             const data = query.data;
             const telegramId = query.from.id.toString();
 
+            console.log(`Processing callback query: "${data}" from ${telegramId} in chat ${chatId}`);
+
             const user = await getAuthorizedUser(telegramId, query.from.username, query.from.first_name);
             if (!user) {
-                bot.answerCallbackQuery(query.id, { text: "🚫 Unauthorized.", show_alert: true });
+                console.log(`Unauthorized callback query from ${telegramId}`);
+                await bot.answerCallbackQuery(query.id, { text: "🚫 Unauthorized.", show_alert: true });
                 return NextResponse.json({ ok: true });
             }
 
@@ -371,9 +385,10 @@ export async function POST(req: Request) {
             await bot.answerCallbackQuery(query.id);
         }
 
+        console.log('--- TELEGRAM WEBHOOK END ---');
         return NextResponse.json({ ok: true });
     } catch (error) {
-        console.error('Error in webhook:', error);
-        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+        console.error('CRITICAL ERROR IN WEBHOOK:', error);
+        return NextResponse.json({ ok: true }); // Always return 200 to Telegram
     }
 }
