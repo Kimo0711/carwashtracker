@@ -5,12 +5,8 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 const token = process.env.TELEGRAM_BOT_TOKEN;
 
-if (!token) {
-    throw new Error('TELEGRAM_BOT_TOKEN is not defined');
-}
-
 // Initialize bot for sending messages (stateless)
-const bot = new TelegramBot(token, { polling: false });
+const bot = token ? new TelegramBot(token, { polling: false }) : null;
 
 const CAR_TYPES = ['Sedan', 'SUV', 'LG SUV', 'F150', 'Van', 'Cargo Truck'];
 const SERVICES = ['Inside Outside', 'Outside Only', 'Inside Only', 'Shampoo'];
@@ -89,6 +85,7 @@ async function resetSession(chatId: string) {
 }
 
 async function showCarTypeMenu(chatId: string) {
+    if (!bot) return;
     const keyboard = CAR_TYPES.map(type => ([{ text: type, callback_data: `type:${type}` }]));
 
     await bot.sendMessage(chatId, "🚗 **Select Car Type:**", {
@@ -98,6 +95,7 @@ async function showCarTypeMenu(chatId: string) {
 }
 
 async function showServiceMenu(chatId: string, type: string) {
+    if (!bot) return;
     const keyboard = SERVICES.map(service => {
         const price = PRICES[type] && PRICES[type][service];
         const label = price ? `${service} ($${price})` : service;
@@ -137,20 +135,37 @@ async function saveWash(chatId: string, user: any, session: any, price: number) 
             },
         });
 
-        await bot.sendMessage(chatId, `✅ **Saved Entry!**\n\n🚗 **Type:** ${savedWash.carType}\n🧼 **Service:** ${session.service}${addonText}${addonPriceText}\n💰 **Total Price:** $${savedWash.parsedPrice?.toFixed(2)}\n\n/start to log another one.`);
+        if (bot) {
+            await bot.sendMessage(chatId, `✅ **Saved Entry!**\n\n🚗 **Type:** ${savedWash.carType}\n🧼 **Service:** ${session.service}${addonText}${addonPriceText}\n💰 **Total Price:** $${savedWash.parsedPrice?.toFixed(2)}\n\n/start to log another one.`);
+        }
         await resetSession(chatId);
     } catch (error) {
         console.error('Save Error:', error);
-        await bot.sendMessage(chatId, "❌ Database error. Please try again.");
+        if (bot) {
+            await bot.sendMessage(chatId, "❌ Database error. Please try again.");
+        }
         await resetSession(chatId);
     }
 }
 
 // --- Main Route Handler ---
 
+export async function GET() {
+    return NextResponse.json({
+        status: 'active',
+        bot_configured: !!token,
+        time: new Date().toISOString()
+    });
+}
+
 export async function POST(req: Request) {
     console.log('--- TELEGRAM WEBHOOK START ---');
     try {
+        if (!bot) {
+            console.error('TELEGRAM_BOT_TOKEN is missing!');
+            return NextResponse.json({ ok: true, error: 'Bot not configured' });
+        }
+
         const body = await req.json();
         console.log('Update received:', JSON.stringify(body));
 
