@@ -76,16 +76,20 @@ async function updateSession(chatId: string, data: any) {
 }
 
 async function resetSession(chatId: string) {
-    // We keep the record but reset fields
-    return await prisma.botSession.update({
+    // Use upsert to handle both new and existing sessions
+    return await prisma.botSession.upsert({
         where: { chatId },
-        data: {
+        update: {
             step: 'start',
             carType: null,
             service: null,
             basePrice: null,
             addons: null,
             totalAddonPrice: 0
+        },
+        create: {
+            chatId,
+            step: 'start'
         }
     });
 }
