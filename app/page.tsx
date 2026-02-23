@@ -451,6 +451,16 @@ export default function Dashboard() {
                     <Users size={16} />
                     TEAM MEMBERS
                 </button>
+                <button
+                    onClick={() => setActiveTab('timesheets')}
+                    className={`pb-3 text-sm font-semibold tracking-wide transition-all flex items-center gap-2 ${activeTab === 'timesheets'
+                        ? 'text-blue-400 border-b-2 border-blue-500'
+                        : 'text-slate-500 hover:text-slate-300'
+                        }`}
+                >
+                    <Clock size={16} />
+                    TIMESHEETS
+                </button>
             </div>
 
             {activeTab === 'washes' && (
