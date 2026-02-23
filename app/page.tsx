@@ -62,6 +62,16 @@ export default function Dashboard() {
     const [editingWash, setEditingWash] = useState<Wash | null>(null);
     const [editForm, setEditForm] = useState({ carType: '', service: '', price: '' });
 
+    // Shift Edit State
+    const [editingShift, setEditingShift] = useState<TimeEntry | null>(null);
+    const [editShiftForm, setEditShiftForm] = useState({
+        date: '',
+        checkInTime: '',
+        checkOutTime: '',
+        breakHours: '0',
+        tips: '0'
+    });
+
     // Time Entry State
     const [showAddShiftModal, setShowAddShiftModal] = useState(false);
     const [addShiftForm, setAddShiftForm] = useState({
@@ -228,6 +238,51 @@ export default function Dashboard() {
         } catch (error) {
             console.error('Error deleting shift:', error);
             alert('An error occurred while deleting.');
+        }
+    };
+
+    const startEditShift = (entry: TimeEntry) => {
+        const checkInDate = new Date(entry.checkIn);
+        const checkOutDate = entry.checkOut ? new Date(entry.checkOut) : null;
+
+        setEditingShift(entry);
+        setEditShiftForm({
+            date: format(checkInDate, 'yyyy-MM-dd'),
+            checkInTime: format(checkInDate, 'HH:mm'),
+            checkOutTime: checkOutDate ? format(checkOutDate, 'HH:mm') : '',
+            breakHours: entry.breakHours.toString(),
+            tips: entry.tips.toString()
+        });
+    };
+
+    const saveShiftEdit = async () => {
+        if (!editingShift) return;
+
+        const checkInDateTime = new Date(`${editShiftForm.date}T${editShiftForm.checkInTime}`);
+        const checkOutDateTime = editShiftForm.checkOutTime ? new Date(`${editShiftForm.date}T${editShiftForm.checkOutTime}`) : null;
+
+        try {
+            const res = await fetch(`/api/time-entries/${editingShift.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    checkIn: checkInDateTime.toISOString(),
+                    checkOut: checkOutDateTime ? checkOutDateTime.toISOString() : null,
+                    breakHours: editShiftForm.breakHours || 0,
+                    tips: editShiftForm.tips || 0,
+                }),
+            });
+
+            if (res.ok) {
+                const updated = await res.json();
+                setTimeEntries(prev => prev.map(t => t.id === updated.id ? updated : t));
+                setEditingShift(null);
+            } else {
+                alert('Failed to update shift.');
+            }
+        } catch (error) {
+            console.error('Error updating shift:', error);
+            alert('An error occurred.');
         }
     };
 
@@ -727,7 +782,8 @@ export default function Dashboard() {
                                                 <th className="p-3 border-r border-[#41709b]/50">Check-out time</th>
                                                 <th className="p-3 border-r border-[#41709b]/50">Break hours</th>
                                                 <th className="p-3 border-r border-[#41709b]/50">Total hours</th>
-                                                <th className="p-3">Tips</th>
+                                                <th className="p-3 border-r border-[#41709b]/50">Tips</th>
+                                                <th className="p-3 text-right">Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-800/50">
@@ -752,8 +808,26 @@ export default function Dashboard() {
                                                         <td className="p-3 border-r border-slate-800/50 font-bold text-blue-400">
                                                             {entry.totalHours ? entry.totalHours.toFixed(2) : '-'}
                                                         </td>
-                                                        <td className="p-3 text-emerald-400 font-medium">
+                                                        <td className="p-3 border-r border-slate-800/50 text-emerald-400 font-medium">
                                                             {entry.tips > 0 ? `$${entry.tips.toFixed(2)}` : ''}
+                                                        </td>
+                                                        <td className="p-3 text-right">
+                                                            <div className="flex items-center justify-end gap-2">
+                                                                <button
+                                                                    onClick={() => startEditShift(entry)}
+                                                                    className="p-1.5 text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
+                                                                    title="Edit Shift"
+                                                                >
+                                                                    <Pencil size={14} />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => deleteTimeEntry(entry.id)}
+                                                                    className="p-1.5 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                                                                    title="Delete Shift"
+                                                                >
+                                                                    <Trash2 size={14} />
+                                                                </button>
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 );
@@ -832,6 +906,92 @@ export default function Dashboard() {
                                 <button
                                     onClick={saveEdit}
                                     className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <Save size={18} />
+                                    Save Changes
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* Edit Shift Modal */}
+            {
+                editingShift && (
+                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className="text-xl font-bold">Edit Shift for {editingShift.user.username}</h3>
+                                <button onClick={() => setEditingShift(null)} className="text-slate-500 hover:text-white">
+                                    <X size={20} />
+                                </button>
+                            </div>
+
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-400 mb-1">Date</label>
+                                    <input
+                                        type="date"
+                                        value={editShiftForm.date}
+                                        onChange={e => setEditShiftForm(prev => ({ ...prev, date: e.target.value }))}
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-400 mb-1">Check-in</label>
+                                        <input
+                                            type="time"
+                                            value={editShiftForm.checkInTime}
+                                            onChange={e => setEditShiftForm(prev => ({ ...prev, checkInTime: e.target.value }))}
+                                            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-400 mb-1">Check-out</label>
+                                        <input
+                                            type="time"
+                                            value={editShiftForm.checkOutTime}
+                                            onChange={e => setEditShiftForm(prev => ({ ...prev, checkOutTime: e.target.value }))}
+                                            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-400 mb-1">Break (Hours)</label>
+                                        <input
+                                            type="number"
+                                            step="0.1"
+                                            value={editShiftForm.breakHours}
+                                            onChange={e => setEditShiftForm(prev => ({ ...prev, breakHours: e.target.value }))}
+                                            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-400 mb-1">Tips ($)</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            value={editShiftForm.tips}
+                                            onChange={e => setEditShiftForm(prev => ({ ...prev, tips: e.target.value }))}
+                                            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3 mt-8">
+                                <button
+                                    onClick={() => setEditingShift(null)}
+                                    className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-medium transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={saveShiftEdit}
+                                    className="flex-1 py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
                                 >
                                     <Save size={18} />
                                     Save Changes
