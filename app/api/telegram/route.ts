@@ -215,7 +215,38 @@ export async function POST(req: Request) {
                 return NextResponse.json({ ok: true });
             }
 
-            const user = await getAuthorizedUser(telegramId, msg.from.username, msg.from.first_name);
+            let user = await getAuthorizedUser(telegramId, msg.from.username, msg.from.first_name);
+
+            // Fast-track invite links so new users can get authorized before being rejected
+            if (text.startsWith('/start invite_')) {
+                const parts = text.split(' ');
+                const token = parts[1].replace('invite_', '');
+
+                // Validate token
+                const inviteToken = await prisma.inviteToken.findUnique({ where: { token } });
+                if (!inviteToken || inviteToken.used) {
+                    await bot.sendMessage(chatId, "❌ Invalid or expired invite link. Please ask the owner for a new one.");
+                    return NextResponse.json({ ok: true });
+                }
+
+                // Register user - ensure we don't downgrade owners if they test their own invite links
+                const targetRole = user?.role === 'OWNER' ? 'OWNER' : 'EMPLOYEE';
+                user = await prisma.user.upsert({
+                    where: { telegramId },
+                    update: { role: targetRole },
+                    create: { telegramId, role: 'EMPLOYEE', username: msg.from?.username || msg.from?.first_name || 'New Employee' }
+                });
+
+                // Mark token used
+                await prisma.inviteToken.update({
+                    where: { token },
+                    data: { used: true }
+                });
+
+                await bot.sendMessage(chatId, "✅ **Access Granted!** You have been successfully added as an Employee.\n\nType /start to open the car wash menu.");
+                return NextResponse.json({ ok: true });
+            }
+
             console.log('Authorized User search result:', JSON.stringify(user));
 
             if (!user) {
@@ -271,16 +302,136 @@ export async function POST(req: Request) {
                 return NextResponse.json({ ok: true });
             }
 
-            if (text === '/start' || text.toLowerCase() === 'cancel' || text.toLowerCase() === 'menu') {
+            if (text === '/checkin') {
+                // Determine if user has an active shift
+                const activeShift = await prisma.timeEntry.findFirst({
+                    where: { userId: user.id, checkOut: null },
+                    orderBy: { checkIn: 'desc' }
+                });
+
+                if (activeShift) {
+                    await bot.sendMessage(chatId, `⚠️ **You are already checked in!**\nStarted at: ${new Date(activeShift.checkIn).toLocaleTimeString()}`);
+                    return NextResponse.json({ ok: true });
+                }
+
+                await prisma.timeEntry.create({
+                    data: {
+                        userId: user.id,
+                        checkIn: new Date(),
+                    }
+                });
+
+                await bot.sendMessage(chatId, `✅ **Checked In!**\nTime: ${new Date().toLocaleTimeString()}\n\nHave a great shift! Send \`/checkout\` when you're done.`);
+                return NextResponse.json({ ok: true });
+            }
+
+            if (text === '/checkout') {
+                const activeShift = await prisma.timeEntry.findFirst({
+                    where: { userId: user.id, checkOut: null },
+                    orderBy: { checkIn: 'desc' }
+                });
+
+                if (!activeShift) {
+                    await bot.sendMessage(chatId, "⚠️ **You are not currently checked in.**\nUse `/checkin` to start a shift.");
+                    return NextResponse.json({ ok: true });
+                }
+
+                await updateSession(chatId, { step: 'checkout_breaks' });
+                await bot.sendMessage(chatId, `🕒 **Checking out...**\nStarted at: ${new Date(activeShift.checkIn).toLocaleTimeString()}\n\n*How many hours of break did you take?*\n(Type a number, e.g. \`0\`, \`0.5\`, \`1\`)`, { parse_mode: 'Markdown' });
+                return NextResponse.json({ ok: true });
+            }
+
+            if (text === '/invite' && user.role === 'OWNER') {
+                const crypto = require('crypto');
+                const token = crypto.randomBytes(16).toString('hex');
+                try {
+                    await prisma.inviteToken.create({
+                        data: {
+                            token,
+                            createdBy: user.telegramId
+                        }
+                    });
+                    const botInfo = await bot.getMe();
+                    const inviteLink = `https://t.me/${botInfo.username}?start=invite_${token}`;
+                    await bot.sendMessage(chatId, `🔗 **Unique Invite Link Generated:**\n\n${inviteLink}\n\nSend this link to the person you want to invite. It can only be used once.`);
+                } catch (error) {
+                    console.error('Invite generation error:', error);
+                    await bot.sendMessage(chatId, "❌ Error generating invite link.");
+                }
+                return NextResponse.json({ ok: true });
+            }
+
+            if (text.startsWith('/start')) {
                 console.log(`Resetting session and showing menu for ${chatId}`);
                 await resetSession(chatId);
                 await showCarTypeMenu(chatId);
                 return NextResponse.json({ ok: true });
             }
 
-            // State Handling for Text Input (Price)
+            if (text.toLowerCase() === 'cancel' || text.toLowerCase() === 'menu') {
+                console.log(`Resetting session and showing menu for ${chatId}`);
+                await resetSession(chatId);
+                await showCarTypeMenu(chatId);
+                return NextResponse.json({ ok: true });
+            }
+
+            // State Handling for Text Input
             const session = await getSession(chatId);
             console.log(`Current session step: ${session.step}`);
+
+            if (session.step === 'checkout_breaks') {
+                const breakHours = parseFloat(text.trim());
+                if (isNaN(breakHours) || breakHours < 0) {
+                    await bot.sendMessage(chatId, "⚠️ Please enter a valid number for break hours (e.g. 0, 1).");
+                    return NextResponse.json({ ok: true });
+                }
+
+                // Temporary storage using Session basePrice for breaks (since basePrice is float)
+                await updateSession(chatId, {
+                    basePrice: breakHours,
+                    step: 'checkout_tips'
+                });
+
+                await bot.sendMessage(chatId, `💰 **Tips**\n\n*How much did you make in tips today?*\n(Type a number, e.g. \`0\`, \`20\`)`, { parse_mode: 'Markdown' });
+                return NextResponse.json({ ok: true });
+            }
+
+            if (session.step === 'checkout_tips') {
+                const tips = parseFloat(text.replace('$', '').trim());
+                if (isNaN(tips) || tips < 0) {
+                    await bot.sendMessage(chatId, "⚠️ Please enter a valid number for tips.");
+                    return NextResponse.json({ ok: true });
+                }
+
+                const activeShift = await prisma.timeEntry.findFirst({
+                    where: { userId: user.id, checkOut: null },
+                    orderBy: { checkIn: 'desc' }
+                });
+
+                if (activeShift) {
+                    const checkOutTime = new Date();
+                    const breakHours = session.basePrice || 0;
+
+                    const diffMs = checkOutTime.getTime() - activeShift.checkIn.getTime();
+                    const diffHours = diffMs / (1000 * 60 * 60);
+                    const totalHours = Math.max(0, diffHours - breakHours);
+
+                    await prisma.timeEntry.update({
+                        where: { id: activeShift.id },
+                        data: {
+                            checkOut: checkOutTime,
+                            breakHours,
+                            tips,
+                            totalHours
+                        }
+                    });
+
+                    await bot.sendMessage(chatId, `✅ **Checked Out Successfully!**\n\n🕒 **Shift:** ${new Date(activeShift.checkIn).toLocaleTimeString()} - ${checkOutTime.toLocaleTimeString()}\n☕ **Breaks:** ${breakHours} hrs\n⏱️ **Total Hours:** ${totalHours.toFixed(2)} hrs\n💸 **Tips:** $${tips.toFixed(2)}\n\nGreat job today!`);
+                }
+
+                await resetSession(chatId);
+                return NextResponse.json({ ok: true });
+            }
 
             if (session.step === 'awaiting_price') {
                 const price = parseFloat(text.replace('$', '').trim());

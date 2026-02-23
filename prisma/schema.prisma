@@ -10,13 +10,13 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-
 model User {
-  id         Int      @id @default(autoincrement())
-  telegramId String   @unique
-  username   String?
-  role       String   @default("EMPLOYEE") // "OWNER" or "EMPLOYEE"
-  createdAt  DateTime @default(now())
+  id          Int         @id @default(autoincrement())
+  telegramId  String      @unique
+  username    String?
+  role        String      @default("EMPLOYEE") // "OWNER" or "EMPLOYEE"
+  createdAt   DateTime    @default(now())
+  timeEntries TimeEntry[]
 }
 
 model Wash {
@@ -25,8 +25,8 @@ model Wash {
   parsedCar       String?
   parsedPrice     Float?
   parsedService   String?
-  carType         String?  // New field
-  addons          String?  // New field
+  carType         String? // New field
+  addons          String? // New field
   senderName      String
   senderId        String
   createdAt       DateTime @default(now())
@@ -39,8 +39,27 @@ model BotSession {
   carType         String?
   service         String?
   basePrice       Float?
-  addons          String?  // JSON string or comma-separated list
+  addons          String? // JSON string or comma-separated list
   totalAddonPrice Float    @default(0)
   updatedAt       DateTime @updatedAt
 }
 
+model InviteToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique
+  createdBy String // telegramId of the owner
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model TimeEntry {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  user       User      @relation(fields: [userId], references: [id])
+  checkIn    DateTime
+  checkOut   DateTime? // Null if currently checked in
+  breakHours Float     @default(0) // Duration of break in decimal hours
+  totalHours Float? // Calculated upon checkout
+  tips       Float     @default(0) // Optional tips logged for the day
+  createdAt  DateTime  @default(now())
+}
