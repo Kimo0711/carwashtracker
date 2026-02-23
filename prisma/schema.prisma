@@ -12,7 +12,7 @@ datasource db {
 
 model User {
   id          Int         @id @default(autoincrement())
-  telegramId  String      @unique
+  telegramId  String?     @unique
   username    String?
   role        String      @default("EMPLOYEE") // "OWNER" or "EMPLOYEE"
   createdAt   DateTime    @default(now())
@@ -61,5 +61,6 @@ model TimeEntry {
   breakHours Float     @default(0) // Duration of break in decimal hours
   totalHours Float? // Calculated upon checkout
   tips       Float     @default(0) // Optional tips logged for the day
+  archived   Boolean   @default(false)
   createdAt  DateTime  @default(now())
 }

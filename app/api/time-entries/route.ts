@@ -7,9 +7,13 @@ const globalForPrisma = global as unknown as { prisma: PrismaClient };
 const prisma = globalForPrisma.prisma || new PrismaClient();
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
+        const { searchParams } = new URL(request.url);
+        const archived = searchParams.get('archived') === 'true';
+
         const timeEntries = await prisma.timeEntry.findMany({
+            where: { archived },
             orderBy: { checkIn: 'desc' },
             include: {
                 user: {
@@ -30,7 +34,6 @@ export async function GET() {
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-
         let { userId, checkIn, checkOut, breakHours, tips } = body;
 
         if (!userId || !checkIn) {
@@ -66,5 +69,25 @@ export async function POST(request: Request) {
     } catch (error) {
         console.error('Failed to create time entry:', error);
         return NextResponse.json({ error: 'Failed to create time entry' }, { status: 500 });
+    }
+}
+
+export async function PATCH(request: Request) {
+    try {
+        const body = await request.json();
+        const { action } = body;
+
+        if (action === 'archive_all') {
+            await prisma.timeEntry.updateMany({
+                where: { archived: false },
+                data: { archived: true }
+            });
+            return NextResponse.json({ success: true });
+        }
+
+        return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+    } catch (error) {
+        console.error('Failed to update entries:', error);
+        return NextResponse.json({ error: 'Failed' }, { status: 500 });
     }
 }

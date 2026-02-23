@@ -6,7 +6,7 @@ import {
     BarChart, Bar
 } from 'recharts';
 import {
-    Search, Download, Car, DollarSign, Calendar as CalendarIcon, TrendingUp, Users, Filter, X, Pencil, Trash2, Save, Clock, RefreshCw
+    Search, Download, Car, DollarSign, Calendar as CalendarIcon, TrendingUp, Users, Filter, X, Pencil, Trash2, Save, Clock, RefreshCw, UserPlus
 } from 'lucide-react';
 import { DayPicker, DateRange } from 'react-day-picker';
 import { format, isWithinInterval, startOfDay, endOfDay, subDays } from 'date-fns';
@@ -74,6 +74,9 @@ export default function Dashboard() {
 
     // Time Entry State
     const [showAddShiftModal, setShowAddShiftModal] = useState(false);
+    const [manualEmployeeName, setManualEmployeeName] = useState('');
+    const [isCreatingManualEmployee, setIsCreatingManualEmployee] = useState(false);
+    const [showArchived, setShowArchived] = useState(false);
     const [addShiftForm, setAddShiftForm] = useState({
         userId: '',
         date: format(new Date(), 'yyyy-MM-dd'),
@@ -99,6 +102,10 @@ export default function Dashboard() {
         };
         loadData();
     }, []);
+
+    useEffect(() => {
+        fetchTimeEntries();
+    }, [showArchived]);
 
     useEffect(() => {
         filterData();
@@ -147,13 +154,66 @@ export default function Dashboard() {
 
     const fetchTimeEntries = async () => {
         try {
-            const res = await fetch('/api/time-entries');
+            const res = await fetch(`/api/time-entries?archived=${showArchived}`);
             const data = await res.json();
             if (Array.isArray(data)) {
                 setTimeEntries(data);
             }
         } catch (error) {
             console.error('Error fetching time entries:', error);
+        }
+    };
+
+    const archiveWeek = async () => {
+        if (!confirm('Are you sure you want to archive all current entries? This will start a fresh week.')) return;
+
+        try {
+            const res = await fetch('/api/time-entries', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'archive_all' })
+            });
+
+            if (res.ok) {
+                alert('Week Archived Successfully!');
+                fetchTimeEntries();
+            } else {
+                alert('Archive failed');
+            }
+        } catch (error) {
+            console.error('Archive error:', error);
+            alert('An error occurred.');
+        }
+    };
+
+    const addManualEmployee = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!manualEmployeeName) return;
+
+        setIsCreatingManualEmployee(true);
+        try {
+            const res = await fetch('/api/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: manualEmployeeName,
+                    mode: 'manual'
+                })
+            });
+
+            if (res.ok) {
+                const newUser = await res.json();
+                setUsers(prev => [...prev, newUser]);
+                setManualEmployeeName('');
+                alert(`Employee ${newUser.username} added successfully!`);
+            } else {
+                alert('Failed to add employee');
+            }
+        } catch (error) {
+            console.error('Error adding employee:', error);
+            alert('An error occurred.');
+        } finally {
+            setIsCreatingManualEmployee(false);
         }
     };
 
@@ -683,37 +743,42 @@ export default function Dashboard() {
                             <h2 className="text-xl font-semibold text-white">Team Roster</h2>
                             <p className="text-sm text-slate-400 mt-1">Manage bot access for your employees.</p>
                         </div>
-                        <div className="flex flex-col items-end gap-2">
-                            <button
-                                onClick={syncBot}
-                                className="text-xs flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors border border-slate-800 px-3 py-1.5 rounded-lg bg-slate-900/50"
-                                title="Repair bot connection (required if address changes)"
-                            >
-                                <RefreshCw size={14} />
-                                Sync Bot Connection
-                            </button>
-                            <button
-                                onClick={generateInvite}
-                                disabled={isGeneratingInvite}
-                                className="bg-gradient-to-r flex items-center gap-2 from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors shadow-lg disabled:opacity-50"
-                            >
-                                {isGeneratingInvite ? 'Generating...' : 'Generate Invite Link'}
-                            </button>
-                            {inviteLink && (
-                                <div className="text-xs text-slate-300 mt-1 bg-slate-800 p-2 rounded flex flex-col gap-1 items-end border border-emerald-500/50">
-                                    <span>Send this link to the new employee:</span>
-                                    <code className="text-emerald-400 font-mono bg-slate-900 p-1 rounded max-w-[250px] truncate block">{inviteLink}</code>
-                                    <button
-                                        onClick={() => {
-                                            navigator.clipboard.writeText(inviteLink);
-                                            alert('Link Copied!');
-                                        }}
-                                        className="text-emerald-500 hover:underline cursor-pointer"
-                                    >
-                                        Copy Link
-                                    </button>
-                                </div>
-                            )}
+                        <div className="flex flex-col items-end gap-3">
+                            <form onSubmit={addManualEmployee} className="flex gap-2">
+                                <input
+                                    type="text"
+                                    placeholder="Employee Name..."
+                                    value={manualEmployeeName}
+                                    onChange={(e) => setManualEmployeeName(e.target.value)}
+                                    className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-emerald-500/50 outline-none w-48"
+                                    required
+                                />
+                                <button
+                                    type="submit"
+                                    disabled={isCreatingManualEmployee}
+                                    className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-50 flex items-center gap-2"
+                                >
+                                    <UserPlus size={16} />
+                                    {isCreatingManualEmployee ? 'Adding...' : 'Add Manually'}
+                                </button>
+                            </form>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={syncBot}
+                                    className="text-xs flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors border border-slate-800 px-3 py-1.5 rounded-lg bg-slate-900/50"
+                                    title="Repair bot connection (required if address changes)"
+                                >
+                                    <RefreshCw size={14} />
+                                    Sync Bot Connection
+                                </button>
+                                <button
+                                    onClick={generateInvite}
+                                    disabled={isGeneratingInvite}
+                                    className="text-xs flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors border border-slate-800 px-3 py-1.5 rounded-lg bg-slate-900/50"
+                                >
+                                    {isGeneratingInvite ? 'Generating...' : 'Bot Invite Link'}
+                                </button>
+                            </div>
                         </div>
                     </div>
                     <div className="overflow-x-auto">
@@ -738,7 +803,9 @@ export default function Dashboard() {
                                                 <span className="font-medium text-slate-200">{user.username}</span>
                                             </div>
                                         </td>
-                                        <td className="p-5 text-slate-400 font-mono text-sm">{user.telegramId}</td>
+                                        <td className="p-5 text-slate-400 font-mono text-sm">
+                                            {user.telegramId || <span className="text-slate-600 italic">Manual Only</span>}
+                                        </td>
                                         <td className="p-5 text-slate-400 text-sm">{format(new Date(user.createdAt), 'MMM d, yyyy')}</td>
                                         <td className="p-5">
                                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium border ${user.role === 'OWNER'
@@ -777,18 +844,62 @@ export default function Dashboard() {
             {activeTab === 'timesheets' && (
                 <div className="space-y-8">
                     {/* Header */}
-                    <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl flex justify-between items-center">
-                        <div>
+                    <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div className="flex flex-col">
                             <h2 className="text-xl font-semibold text-white">Employee Hours</h2>
                             <p className="text-sm text-slate-400 mt-1">Automated timesheet tracking based on bot check-ins, or manage manually.</p>
                         </div>
-                        <button
-                            onClick={() => setShowAddShiftModal(true)}
-                            className="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
-                        >
-                            <CalendarIcon size={16} />
-                            Add Shift
-                        </button>
+                        <div className="flex gap-2 bg-slate-950 p-1 rounded-lg border border-slate-800">
+                            <button
+                                onClick={() => setShowArchived(false)}
+                                className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${!showArchived ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}
+                            >
+                                ACTIVE WEEK
+                            </button>
+                            <button
+                                onClick={() => setShowArchived(true)}
+                                className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${showArchived ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}
+                            >
+                                HISTORY
+                            </button>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={() => setShowAddShiftModal(true)}
+                                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-xl text-sm font-semibold transition-all border border-slate-700"
+                            >
+                                <Clock size={16} />
+                                Add Manual Shift
+                            </button>
+                            {!showArchived && timeEntries.length > 0 && (
+                                <button
+                                    onClick={archiveWeek}
+                                    className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white px-6 py-2 rounded-xl text-sm font-semibold transition-all shadow-lg active:scale-95"
+                                >
+                                    <Save size={16} />
+                                    Archive This Week
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                        <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800">
+                            <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-1">Total Hours</p>
+                            <p className="text-2xl font-bold text-blue-400">{timeEntries.reduce((sum, t) => sum + (t.totalHours || 0), 0).toFixed(2)}</p>
+                        </div>
+                        <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800">
+                            <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-1">Total Tips</p>
+                            <p className="text-2xl font-bold text-emerald-400">${timeEntries.reduce((sum, t) => sum + (t.tips || 0), 0).toFixed(2)}</p>
+                        </div>
+                        <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800">
+                            <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-1">Employees</p>
+                            <p className="text-2xl font-bold text-indigo-400">{new Set(timeEntries.filter(t => t.user).map(t => t.user.username)).size}</p>
+                        </div>
+                        <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800">
+                            <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-1">Week Status</p>
+                            <p className="text-2xl font-bold text-slate-300">{showArchived ? 'ARCHIVED' : 'ACTIVE'}</p>
+                        </div>
                     </div>
 
                     {/* Employee Tables */}

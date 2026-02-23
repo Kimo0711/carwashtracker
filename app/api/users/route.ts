@@ -28,6 +28,27 @@ export async function GET() {
 
 export async function POST(request: Request) {
     try {
+        const body = await request.json();
+        const { username, telegramId, mode } = body;
+
+        // Mode for manual employee creation
+        if (mode === 'manual') {
+            if (!username) {
+                return NextResponse.json({ error: 'Username is required' }, { status: 400 });
+            }
+
+            const newUser = await prisma.user.create({
+                data: {
+                    username,
+                    role: 'EMPLOYEE',
+                    telegramId: telegramId || null // Optional telegramId
+                }
+            });
+
+            return NextResponse.json(newUser);
+        }
+
+        // Existing Invite Link logic
         const crypto = require('crypto');
         const token = crypto.randomBytes(16).toString('hex');
 
@@ -56,7 +77,7 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ success: true, link: inviteLink });
     } catch (error) {
-        console.error('Failed to generate invite link:', error);
-        return NextResponse.json({ error: 'Failed to generate link' }, { status: 500 });
+        console.error('Failed to process user request:', error);
+        return NextResponse.json({ error: 'Failed to process request' }, { status: 500 });
     }
 }

@@ -348,7 +348,7 @@ export async function POST(req: Request) {
                     await prisma.inviteToken.create({
                         data: {
                             token,
-                            createdBy: user.telegramId
+                            createdBy: user.telegramId || 'UNKNOWN'
                         }
                     });
                     const botInfo = await bot.getMe();

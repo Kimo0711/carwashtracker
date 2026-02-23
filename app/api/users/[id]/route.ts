@@ -24,7 +24,7 @@ export async function DELETE(
         });
 
         // Also delete any pending sessions if they had one active in telegram
-        if (user) {
+        if (user && user.telegramId) {
             await prisma.botSession.deleteMany({
                 where: { chatId: user.telegramId }
             });
