@@ -407,14 +407,11 @@ export default function Dashboard() {
     return (
         <div className="min-h-screen bg-slate-950 text-slate-100 p-8 font-sans selection:bg-blue-500/30">
             <header className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div className="bg-blue-600 text-white p-2 text-center text-xs font-bold rounded-lg mb-4">
-                    DEPLOYMENT VERIFY: LATEST SYNC (v1.1.1)
-                </div>
                 <div>
                     <h1 className="text-4xl font-extrabold bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-500 bg-clip-text text-transparent tracking-tight">
                         AutoSpa L'Exception
                     </h1>
-                    <p className="text-slate-400 mt-1 text-sm font-medium tracking-wide">OPERATIONS TRACKER v1.1.1</p>
+                    <p className="text-slate-400 mt-1 text-sm font-medium tracking-wide">OPERATIONS TRACKER</p>
                 </div>
                 <div className="flex gap-3">
                     <button
@@ -1014,6 +1011,106 @@ export default function Dashboard() {
                     </div>
                 )
             }
+            {/* Add Shift Modal */}
+            {showAddShiftModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <form onSubmit={handleAddShift} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xl font-bold">Add Manual Shift</h3>
+                            <button type="button" onClick={() => setShowAddShiftModal(false)} className="text-slate-500 hover:text-white">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-400 mb-1">Employee</label>
+                                <select
+                                    required
+                                    value={addShiftForm.userId}
+                                    onChange={e => setAddShiftForm(prev => ({ ...prev, userId: e.target.value }))}
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
+                                >
+                                    <option value="">Select Employee...</option>
+                                    {users.map(u => (
+                                        <option key={u.id} value={u.id}>{u.username}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-400 mb-1">Date</label>
+                                <input
+                                    type="date"
+                                    required
+                                    value={addShiftForm.date}
+                                    onChange={e => setAddShiftForm(prev => ({ ...prev, date: e.target.value }))}
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-400 mb-1">Check-in</label>
+                                    <input
+                                        type="time"
+                                        required
+                                        value={addShiftForm.checkInTime}
+                                        onChange={e => setAddShiftForm(prev => ({ ...prev, checkInTime: e.target.value }))}
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-400 mb-1">Check-out</label>
+                                    <input
+                                        type="time"
+                                        value={addShiftForm.checkOutTime}
+                                        onChange={e => setAddShiftForm(prev => ({ ...prev, checkOutTime: e.target.value }))}
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
+                                    />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-400 mb-1">Break (Hours)</label>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        value={addShiftForm.breakHours}
+                                        onChange={e => setAddShiftForm(prev => ({ ...prev, breakHours: e.target.value }))}
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-400 mb-1">Tips ($)</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        value={addShiftForm.tips}
+                                        onChange={e => setAddShiftForm(prev => ({ ...prev, tips: e.target.value }))}
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3 mt-8">
+                            <button
+                                type="button"
+                                onClick={() => setShowAddShiftModal(false)}
+                                className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-medium transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 text-white"
+                            >
+                                <Save size={18} />
+                                Add Shift
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            )}
         </div >
     );
 }
