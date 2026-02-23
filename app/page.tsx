@@ -411,7 +411,7 @@ export default function Dashboard() {
                     <h1 className="text-4xl font-extrabold bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-500 bg-clip-text text-transparent tracking-tight">
                         AutoSpa L'Exception
                     </h1>
-                    <p className="text-slate-400 mt-1 text-sm font-medium tracking-wide">OPERATIONS TRACKER</p>
+                    <p className="text-slate-400 mt-1 text-sm font-medium tracking-wide">OPERATIONS TRACKER v1.1</p>
                 </div>
                 <div className="flex gap-3">
                     <button
@@ -769,8 +769,8 @@ export default function Dashboard() {
                     </div>
 
                     {/* Employee Tables */}
-                    {Array.from(new Set(timeEntries.map(t => t.user.username))).map(employeeName => {
-                        const employeeEntries = timeEntries.filter(t => t.user.username === employeeName);
+                    {Array.from(new Set(timeEntries.filter(t => t.user).map(t => t.user.username))).map(employeeName => {
+                        const employeeEntries = timeEntries.filter(t => t.user && t.user.username === employeeName);
                         const totalHours = employeeEntries.reduce((sum, t) => sum + (t.totalHours || 0), 0);
                         const totalTips = employeeEntries.reduce((sum, t) => sum + (t.tips || 0), 0);
 
