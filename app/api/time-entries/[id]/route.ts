@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
@@ -6,7 +6,7 @@ const prisma = globalForPrisma.prisma || new PrismaClient();
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
 export async function PATCH(
-    request: Request,
+    request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
@@ -55,7 +55,7 @@ export async function PATCH(
 }
 
 export async function DELETE(
-    request: Request,
+    request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {

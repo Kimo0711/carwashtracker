@@ -1,11 +1,11 @@
 import { PrismaClient } from '@prisma/client';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 const prisma = new PrismaClient();
 
 export async function DELETE(
-    request: Request,
-    { params }: { params: Promise<{ id: string }> } // Params are now Promises in Next.js 15+
+    request: NextRequest,
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
         const id = parseInt((await params).id);
@@ -20,7 +20,7 @@ export async function DELETE(
 }
 
 export async function PATCH(
-    request: Request,
+    request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
