@@ -7,11 +7,11 @@ if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
 export async function PATCH(
     request: NextRequest,
-    { params }: { params: Promise<{ id: string }> }
+    context: { params: Promise<{ id: string }> }
 ) {
     try {
-        const { id: idStr } = await params;
-        const id = parseInt(idStr);
+        const params = await context.params;
+        const id = parseInt(params.id);
         const body = await request.json();
         const { checkIn, checkOut, breakHours, tips } = body;
 
@@ -56,11 +56,11 @@ export async function PATCH(
 
 export async function DELETE(
     request: NextRequest,
-    { params }: { params: Promise<{ id: string }> }
+    context: { params: Promise<{ id: string }> }
 ) {
     try {
-        const { id: idStr } = await params;
-        const id = parseInt(idStr);
+        const params = await context.params;
+        const id = parseInt(params.id);
         await prisma.timeEntry.delete({
             where: { id }
         });

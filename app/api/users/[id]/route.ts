@@ -9,11 +9,11 @@ if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
 export async function DELETE(
     request: NextRequest,
-    { params }: { params: Promise<{ id: string }> }
+    context: { params: Promise<{ id: string }> }
 ) {
     try {
-        const { id: idStr } = await params;
-        const id = parseInt(idStr);
+        const params = await context.params;
+        const id = parseInt(params.id);
 
         if (isNaN(id)) {
             return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });

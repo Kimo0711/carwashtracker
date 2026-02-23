@@ -5,10 +5,11 @@ const prisma = new PrismaClient();
 
 export async function DELETE(
     request: NextRequest,
-    { params }: { params: Promise<{ id: string }> }
+    context: { params: Promise<{ id: string }> }
 ) {
     try {
-        const id = parseInt((await params).id);
+        const params = await context.params;
+        const id = parseInt(params.id);
         await prisma.wash.delete({
             where: { id },
         });
@@ -21,10 +22,11 @@ export async function DELETE(
 
 export async function PATCH(
     request: NextRequest,
-    { params }: { params: Promise<{ id: string }> }
+    context: { params: Promise<{ id: string }> }
 ) {
     try {
-        const id = parseInt((await params).id);
+        const params = await context.params;
+        const id = parseInt(params.id);
         const body = await request.json();
 
         const updatedWash = await prisma.wash.update({
