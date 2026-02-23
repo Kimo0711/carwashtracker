@@ -407,11 +407,14 @@ export default function Dashboard() {
     return (
         <div className="min-h-screen bg-slate-950 text-slate-100 p-8 font-sans selection:bg-blue-500/30">
             <header className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="bg-blue-600 text-white p-2 text-center text-xs font-bold rounded-lg mb-4">
+                    DEPLOYMENT VERIFY: LATEST SYNC (v1.1.1)
+                </div>
                 <div>
                     <h1 className="text-4xl font-extrabold bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-500 bg-clip-text text-transparent tracking-tight">
                         AutoSpa L'Exception
                     </h1>
-                    <p className="text-slate-400 mt-1 text-sm font-medium tracking-wide">OPERATIONS TRACKER v1.1</p>
+                    <p className="text-slate-400 mt-1 text-sm font-medium tracking-wide">OPERATIONS TRACKER v1.1.1</p>
                 </div>
                 <div className="flex gap-3">
                     <button
