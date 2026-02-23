@@ -28,7 +28,16 @@ export async function GET() {
 
 export async function POST(request: Request) {
     try {
-        const body = await request.json();
+        let body: any = {};
+        try {
+            const text = await request.text();
+            if (text) {
+                body = JSON.parse(text);
+            }
+        } catch (e) {
+            console.error('Error parsing body', e);
+        }
+
         const { username, telegramId, mode } = body;
 
         // Mode for manual employee creation
@@ -37,18 +46,27 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Username is required' }, { status: 400 });
             }
 
+            // Check if user already exists
+            const existingUser = await prisma.user.findFirst({
+                where: { username }
+            });
+
+            if (existingUser) {
+                return NextResponse.json({ error: 'User with this name already exists' }, { status: 400 });
+            }
+
             const newUser = await prisma.user.create({
                 data: {
                     username,
                     role: 'EMPLOYEE',
-                    telegramId: telegramId || null // Optional telegramId
+                    telegramId: telegramId || null
                 }
             });
 
             return NextResponse.json(newUser);
         }
 
-        // Existing Invite Link logic
+        // Existing Invite Link logic (for mode !== 'manual' or no body)
         const crypto = require('crypto');
         const token = crypto.randomBytes(16).toString('hex');
 
@@ -63,6 +81,7 @@ export async function POST(request: Request) {
         let botUsername = 'your_bot';
         if (botToken) {
             try {
+                // We should ideally cache this, but for now we fetch it
                 const res = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
                 const data = await res.json();
                 if (data.ok) {

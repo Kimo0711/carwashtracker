@@ -60,7 +60,6 @@ model TimeEntry {
   checkOut   DateTime? // Null if currently checked in
   breakHours Float     @default(0) // Duration of break in decimal hours
   totalHours Float? // Calculated upon checkout
-  tips       Float     @default(0) // Optional tips logged for the day
   archived   Boolean   @default(false)
   createdAt  DateTime  @default(now())
 }

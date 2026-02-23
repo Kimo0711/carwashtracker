@@ -13,7 +13,7 @@ export async function PATCH(
         const params = await context.params;
         const id = parseInt(params.id);
         const body = await request.json();
-        const { checkIn, checkOut, breakHours, tips } = body;
+        const { checkIn, checkOut, breakHours } = body;
 
         const inTime = new Date(checkIn);
         let outTime = null;
@@ -34,7 +34,6 @@ export async function PATCH(
                 checkIn: inTime,
                 checkOut: outTime,
                 breakHours: bHours,
-                tips: parseFloat(tips) || 0,
                 totalHours: totalHours
             },
             include: {

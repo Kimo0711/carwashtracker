@@ -39,7 +39,6 @@ interface TimeEntry {
     checkOut: string | null;
     breakHours: number;
     totalHours: number | null;
-    tips: number;
     archived: boolean;
     createdAt: string;
 }
@@ -69,8 +68,7 @@ export default function Dashboard() {
         date: '',
         checkInTime: '',
         checkOutTime: '',
-        breakHours: '0',
-        tips: '0'
+        breakHours: '0'
     });
 
     // Time Entry State
@@ -83,8 +81,7 @@ export default function Dashboard() {
         date: format(new Date(), 'yyyy-MM-dd'),
         checkInTime: '09:00',
         checkOutTime: '17:00',
-        breakHours: '0',
-        tips: '0'
+        breakHours: '0'
     });
 
     // Team State
@@ -278,7 +275,6 @@ export default function Dashboard() {
                     checkIn: checkInDateTime.toISOString(),
                     checkOut: checkOutDateTime ? checkOutDateTime.toISOString() : null,
                     breakHours: addShiftForm.breakHours || 0,
-                    tips: addShiftForm.tips || 0,
                 }),
             });
 
@@ -289,8 +285,7 @@ export default function Dashboard() {
                     date: format(new Date(), 'yyyy-MM-dd'),
                     checkInTime: '09:00',
                     checkOutTime: '17:00',
-                    breakHours: '0',
-                    tips: '0'
+                    breakHours: '0'
                 });
                 fetchTimeEntries();
             } else {
@@ -328,7 +323,6 @@ export default function Dashboard() {
             checkInTime: format(checkInDate, 'HH:mm'),
             checkOutTime: checkOutDate ? format(checkOutDate, 'HH:mm') : '',
             breakHours: entry.breakHours.toString(),
-            tips: entry.tips.toString()
         });
     };
 
@@ -346,7 +340,6 @@ export default function Dashboard() {
                     checkIn: checkInDateTime.toISOString(),
                     checkOut: checkOutDateTime ? checkOutDateTime.toISOString() : null,
                     breakHours: editShiftForm.breakHours || 0,
-                    tips: editShiftForm.tips || 0,
                 }),
             });
 
@@ -908,8 +901,8 @@ export default function Dashboard() {
                             <p className="text-2xl font-bold text-blue-400">{timeEntries.reduce((sum, t) => sum + (t.totalHours || 0), 0).toFixed(2)}</p>
                         </div>
                         <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800">
-                            <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-1">Total Tips</p>
-                            <p className="text-2xl font-bold text-emerald-400">${timeEntries.reduce((sum, t) => sum + (t.tips || 0), 0).toFixed(2)}</p>
+                            <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-1">Total Shfits</p>
+                            <p className="text-2xl font-bold text-emerald-400">{timeEntries.length}</p>
                         </div>
                         <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800">
                             <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-1">Employees</p>
@@ -925,7 +918,6 @@ export default function Dashboard() {
                     {Array.from(new Set(timeEntries.filter(t => t.user).map(t => t.user.username))).map(employeeName => {
                         const employeeEntries = timeEntries.filter(t => t.user && t.user.username === employeeName);
                         const totalHours = employeeEntries.reduce((sum, t) => sum + (t.totalHours || 0), 0);
-                        const totalTips = employeeEntries.reduce((sum, t) => sum + (t.tips || 0), 0);
 
                         return (
                             <div key={employeeName} className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
@@ -933,7 +925,6 @@ export default function Dashboard() {
                                     <h3 className="font-bold text-lg text-slate-200">{employeeName}</h3>
                                     <div className="flex gap-4 text-sm">
                                         <span className="text-slate-400">Total Hours: <strong className="text-blue-400">{totalHours.toFixed(2)}</strong></span>
-                                        <span className="text-slate-400">Total Tips: <strong className="text-emerald-400">${totalTips.toFixed(2)}</strong></span>
                                     </div>
                                 </div>
                                 <div className="overflow-x-auto">
@@ -945,7 +936,6 @@ export default function Dashboard() {
                                                 <th className="p-3 border-r border-[#41709b]/50">Check-out time</th>
                                                 <th className="p-3 border-r border-[#41709b]/50">Break hours</th>
                                                 <th className="p-3 border-r border-[#41709b]/50">Total hours</th>
-                                                <th className="p-3 border-r border-[#41709b]/50">Tips</th>
                                                 <th className="p-3 text-right">Actions</th>
                                             </tr>
                                         </thead>
@@ -971,9 +961,6 @@ export default function Dashboard() {
                                                         <td className="p-3 border-r border-slate-800/50 font-bold text-blue-400">
                                                             {entry.totalHours ? entry.totalHours.toFixed(2) : '-'}
                                                         </td>
-                                                        <td className="p-3 border-r border-slate-800/50 text-emerald-400 font-medium">
-                                                            {entry.tips > 0 ? `$${entry.tips.toFixed(2)}` : ''}
-                                                        </td>
                                                         <td className="p-3 text-right">
                                                             <div className="flex items-center justify-end gap-2">
                                                                 <button
@@ -997,7 +984,7 @@ export default function Dashboard() {
                                             })}
                                             {employeeEntries.length === 0 && (
                                                 <tr>
-                                                    <td colSpan={6} className="p-6 text-center text-slate-500">
+                                                    <td colSpan={5} className="p-6 text-center text-slate-500">
                                                         No shifts found.
                                                     </td>
                                                 </tr>
@@ -1132,16 +1119,6 @@ export default function Dashboard() {
                                             className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
                                         />
                                     </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-400 mb-1">Tips ($)</label>
-                                        <input
-                                            type="number"
-                                            step="0.01"
-                                            value={editShiftForm.tips}
-                                            onChange={e => setEditShiftForm(prev => ({ ...prev, tips: e.target.value }))}
-                                            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
-                                        />
-                                    </div>
                                 </div>
                             </div>
 
@@ -1229,16 +1206,6 @@ export default function Dashboard() {
                                         step="0.1"
                                         value={addShiftForm.breakHours}
                                         onChange={e => setAddShiftForm(prev => ({ ...prev, breakHours: e.target.value }))}
-                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-1">Tips ($)</label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        value={addShiftForm.tips}
-                                        onChange={e => setAddShiftForm(prev => ({ ...prev, tips: e.target.value }))}
                                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
                                     />
                                 </div>

@@ -39,21 +39,20 @@ const ADDON_PRICES: Record<string, Record<string, number>> = {
 // --- Helper Functions ---
 
 async function getAuthorizedUser(telegramId: string, username?: string, firstName?: string) {
-    let user = await prisma.user.findUnique({
-        where: { telegramId }
-    });
+    // Parallelize user check and count for new systems
+    const [user, userCount] = await Promise.all([
+        prisma.user.findUnique({ where: { telegramId } }),
+        prisma.user.count()
+    ]);
 
-    // If no users exist, make the first one the owner
-    const userCount = await prisma.user.count();
-    if (userCount === 0) {
-        user = await prisma.user.create({
+    if (!user && userCount === 0) {
+        return await prisma.user.create({
             data: {
                 telegramId,
                 username: username || firstName || 'Owner',
                 role: 'OWNER'
             }
         });
-        console.log(`First user registered as OWNER: ${user.username} (${telegramId})`);
     }
 
     return user;
@@ -215,7 +214,11 @@ export async function POST(req: Request) {
                 return NextResponse.json({ ok: true });
             }
 
-            let user = await getAuthorizedUser(telegramId, msg.from.username, msg.from.first_name);
+            // Parallelize user fetch and session fetch
+            let [user, session] = await Promise.all([
+                getAuthorizedUser(telegramId, msg.from.username, msg.from.first_name),
+                getSession(chatId)
+            ]);
 
             // Fast-track invite links so new users can get authorized before being rejected
             if (text.startsWith('/start invite_')) {
@@ -246,8 +249,6 @@ export async function POST(req: Request) {
                 await bot.sendMessage(chatId, "✅ **Access Granted!** You have been successfully added as an Employee.\n\nType /start to open the car wash menu.");
                 return NextResponse.json({ ok: true });
             }
-
-            console.log('Authorized User search result:', JSON.stringify(user));
 
             if (!user) {
                 console.log(`User ${telegramId} is NOT authorized.`);
@@ -376,30 +377,12 @@ export async function POST(req: Request) {
             }
 
             // State Handling for Text Input
-            const session = await getSession(chatId);
             console.log(`Current session step: ${session.step}`);
 
             if (session.step === 'checkout_breaks') {
                 const breakHours = parseFloat(text.trim());
                 if (isNaN(breakHours) || breakHours < 0) {
                     await bot.sendMessage(chatId, "⚠️ Please enter a valid number for break hours (e.g. 0, 1).");
-                    return NextResponse.json({ ok: true });
-                }
-
-                // Temporary storage using Session basePrice for breaks (since basePrice is float)
-                await updateSession(chatId, {
-                    basePrice: breakHours,
-                    step: 'checkout_tips'
-                });
-
-                await bot.sendMessage(chatId, `💰 **Tips**\n\n*How much did you make in tips today?*\n(Type a number, e.g. \`0\`, \`20\`)`, { parse_mode: 'Markdown' });
-                return NextResponse.json({ ok: true });
-            }
-
-            if (session.step === 'checkout_tips') {
-                const tips = parseFloat(text.replace('$', '').trim());
-                if (isNaN(tips) || tips < 0) {
-                    await bot.sendMessage(chatId, "⚠️ Please enter a valid number for tips.");
                     return NextResponse.json({ ok: true });
                 }
 
@@ -410,8 +393,6 @@ export async function POST(req: Request) {
 
                 if (activeShift) {
                     const checkOutTime = new Date();
-                    const breakHours = session.basePrice || 0;
-
                     const diffMs = checkOutTime.getTime() - activeShift.checkIn.getTime();
                     const diffHours = diffMs / (1000 * 60 * 60);
                     const totalHours = Math.max(0, diffHours - breakHours);
@@ -421,12 +402,11 @@ export async function POST(req: Request) {
                         data: {
                             checkOut: checkOutTime,
                             breakHours,
-                            tips,
                             totalHours
                         }
                     });
 
-                    await bot.sendMessage(chatId, `✅ **Checked Out Successfully!**\n\n🕒 **Shift:** ${new Date(activeShift.checkIn).toLocaleTimeString()} - ${checkOutTime.toLocaleTimeString()}\n☕ **Breaks:** ${breakHours} hrs\n⏱️ **Total Hours:** ${totalHours.toFixed(2)} hrs\n💸 **Tips:** $${tips.toFixed(2)}\n\nGreat job today!`);
+                    await bot.sendMessage(chatId, `✅ **Checked Out Successfully!**\n\n🕒 **Shift:** ${new Date(activeShift.checkIn).toLocaleTimeString()} - ${checkOutTime.toLocaleTimeString()}\n☕ **Breaks:** ${breakHours} hrs\n⏱️ **Total Hours:** ${totalHours.toFixed(2)} hrs\n\nGreat job today!`);
                 }
 
                 await resetSession(chatId);
