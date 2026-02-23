@@ -901,7 +901,7 @@ export default function Dashboard() {
                             <p className="text-2xl font-bold text-blue-400">{timeEntries.reduce((sum, t) => sum + (t.totalHours || 0), 0).toFixed(2)}</p>
                         </div>
                         <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800">
-                            <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-1">Total Shfits</p>
+                            <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-1">Total Shifts</p>
                             <p className="text-2xl font-bold text-emerald-400">{timeEntries.length}</p>
                         </div>
                         <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800">
