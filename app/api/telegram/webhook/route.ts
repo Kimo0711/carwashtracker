@@ -2,18 +2,26 @@ import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
-    const url = searchParams.get('url');
+    let url = searchParams.get('url');
     const token = process.env.TELEGRAM_BOT_TOKEN;
 
+    // Automatic detection if URL is missing
     if (!url) {
-        return NextResponse.json({ error: 'Missing "url" query parameter. Example: ?url=https://your-domain.vercel.app' }, { status: 400 });
+        const host = request.headers.get('host');
+        if (host) {
+            const protocol = host.includes('localhost') ? 'http' : 'https';
+            url = `${protocol}://${host}`;
+        }
+    }
+
+    if (!url) {
+        return NextResponse.json({ error: 'Could not determine current URL. Please provide ?url= param.' }, { status: 400 });
     }
 
     if (!token) {
-        return NextResponse.json({ error: 'TELEGRAM_BOT_TOKEN is not defined in environment variables' }, { status: 500 });
+        return NextResponse.json({ error: 'TELEGRAM_BOT_TOKEN is not defined' }, { status: 500 });
     }
 
-    // specific endpoint for the bot logic
     const webhookEndpoint = `${url}/api/telegram`;
     const telegramUrl = `https://api.telegram.org/bot${token}/setWebhook?url=${webhookEndpoint}`;
 

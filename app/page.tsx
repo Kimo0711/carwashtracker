@@ -6,7 +6,7 @@ import {
     BarChart, Bar
 } from 'recharts';
 import {
-    Search, Download, Car, DollarSign, Calendar as CalendarIcon, TrendingUp, Users, Filter, X, Pencil, Trash2, Save, Clock
+    Search, Download, Car, DollarSign, Calendar as CalendarIcon, TrendingUp, Users, Filter, X, Pencil, Trash2, Save, Clock, RefreshCw
 } from 'lucide-react';
 import { DayPicker, DateRange } from 'react-day-picker';
 import { format, isWithinInterval, startOfDay, endOfDay, subDays } from 'date-fns';
@@ -182,6 +182,21 @@ export default function Dashboard() {
         } catch (error) {
             console.error('Error deleting user:', error);
             alert('An error occurred while deleting.');
+        }
+    };
+
+    const syncBot = async () => {
+        try {
+            const res = await fetch('/api/telegram/webhook');
+            const data = await res.json();
+            if (data.success) {
+                alert('Bot Connection Synced Successfully!');
+            } else {
+                alert('Sync failed: ' + (data.error || 'Unknown error'));
+            }
+        } catch (err) {
+            console.error('Sync error:', err);
+            alert('Error syncing bot. See console.');
         }
     };
 
@@ -669,6 +684,14 @@ export default function Dashboard() {
                             <p className="text-sm text-slate-400 mt-1">Manage bot access for your employees.</p>
                         </div>
                         <div className="flex flex-col items-end gap-2">
+                            <button
+                                onClick={syncBot}
+                                className="text-xs flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors border border-slate-800 px-3 py-1.5 rounded-lg bg-slate-900/50"
+                                title="Repair bot connection (required if address changes)"
+                            >
+                                <RefreshCw size={14} />
+                                Sync Bot Connection
+                            </button>
                             <button
                                 onClick={generateInvite}
                                 disabled={isGeneratingInvite}
