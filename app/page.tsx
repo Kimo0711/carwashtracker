@@ -25,8 +25,8 @@ interface Wash {
 
 interface User {
     id: number;
-    telegramId: string;
-    username: string;
+    telegramId: string | null;
+    username: string | null;
     role: string;
     createdAt: string;
 }
@@ -34,12 +34,13 @@ interface User {
 interface TimeEntry {
     id: number;
     userId: number;
-    user: { username: string; telegramId: string };
+    user: { username: string | null; telegramId: string | null };
     checkIn: string;
     checkOut: string | null;
     breakHours: number;
     totalHours: number | null;
     tips: number;
+    archived: boolean;
     createdAt: string;
 }
 
@@ -203,15 +204,16 @@ export default function Dashboard() {
 
             if (res.ok) {
                 const newUser = await res.json();
-                setUsers(prev => [...prev, newUser]);
                 setManualEmployeeName('');
+                await fetchUsers(); // More robust than local state update
                 alert(`Employee ${newUser.username} added successfully!`);
             } else {
-                alert('Failed to add employee');
+                const errorData = await res.json();
+                alert('Failed to add employee: ' + (errorData.error || 'Unknown error'));
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error adding employee:', error);
-            alert('An error occurred.');
+            alert('An error occurred: ' + error.message);
         } finally {
             setIsCreatingManualEmployee(false);
         }
@@ -779,6 +781,23 @@ export default function Dashboard() {
                                     {isGeneratingInvite ? 'Generating...' : 'Bot Invite Link'}
                                 </button>
                             </div>
+                            {inviteLink && (
+                                <div className="text-xs text-slate-300 mt-1 bg-slate-800 p-2 rounded flex flex-col gap-1 items-end border border-emerald-500/50">
+                                    <div className="flex items-center gap-2">
+                                        <span className="opacity-60">Invite link:</span>
+                                        <code className="text-emerald-400 font-mono bg-slate-900 p-1 rounded max-w-[200px] truncate">{inviteLink}</code>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(inviteLink);
+                                            alert('Link Copied!');
+                                        }}
+                                        className="text-emerald-500 hover:text-emerald-400 font-medium cursor-pointer"
+                                    >
+                                        Copy Link
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                     <div className="overflow-x-auto">
