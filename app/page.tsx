@@ -2,15 +2,42 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-    LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-    BarChart, Bar
-} from 'recharts';
-import {
-    Search, Download, Car, DollarSign, Calendar as CalendarIcon, TrendingUp, Users, Filter, X, Pencil, Trash2, Save, Clock
+    Search, Download, Car, DollarSign, Calendar as CalendarIcon, TrendingUp, Users, Filter, X, Pencil, Trash2, Save, Clock, ChevronLeft, ChevronRight, Building2, Plus, Minus
 } from 'lucide-react';
 import { DayPicker, DateRange } from 'react-day-picker';
-import { format, isWithinInterval, startOfDay, endOfDay, subDays } from 'date-fns';
+import { format, isWithinInterval, startOfDay, endOfDay, startOfWeek, endOfWeek, addWeeks } from 'date-fns';
 import 'react-day-picker/dist/style.css';
+
+interface DealerService {
+    name: string;
+    price: number;
+}
+
+interface DealerWashEntry {
+    id: number;
+    price: number;
+    serviceName: string;
+    comments: string | null;
+    senderName: string;
+    createdAt: string;
+}
+
+interface DealerBatchEntry {
+    id: number;
+    openedAt: string;
+    paidAt: string | null;
+    status: string;
+    washes: DealerWashEntry[];
+}
+
+interface Dealer {
+    id: number;
+    name: string;
+    services: DealerService[];
+    isActive: boolean;
+    createdAt: string;
+    batches: DealerBatchEntry[];
+}
 
 interface Wash {
     id: number;
@@ -39,12 +66,11 @@ interface TimeEntry {
     checkOut: string | null;
     breakHours: number;
     totalHours: number | null;
-    tips: number;
     createdAt: string;
 }
 
 export default function Dashboard() {
-    const [activeTab, setActiveTab] = useState<'washes' | 'team' | 'timesheets'>('washes');
+    const [activeTab, setActiveTab] = useState<'washes' | 'team' | 'timesheets' | 'dealers'>('washes');
     const [washes, setWashes] = useState<Wash[]>([]);
     const [users, setUsers] = useState<User[]>([]);
     const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
@@ -69,7 +95,6 @@ export default function Dashboard() {
         checkInTime: '',
         checkOutTime: '',
         breakHours: '0',
-        tips: '0'
     });
 
     // Time Entry State
@@ -77,24 +102,50 @@ export default function Dashboard() {
     const [addShiftForm, setAddShiftForm] = useState({
         userId: '',
         date: format(new Date(), 'yyyy-MM-dd'),
-        checkInTime: '09:00',
-        checkOutTime: '17:00',
+        checkInTime: '09:30',
+        checkOutTime: '18:00',
         breakHours: '0',
-        tips: '0'
     });
 
     // Team State
     const [inviteLink, setInviteLink] = useState('');
     const [isGeneratingInvite, setIsGeneratingInvite] = useState(false);
 
+    // Dealers State
+    const [dealers, setDealers] = useState<Dealer[]>([]);
+    const [showAddDealerModal, setShowAddDealerModal] = useState(false);
+    const [expandedBatches, setExpandedBatches] = useState<Set<number>>(new Set());
+    const [dealerForm, setDealerForm] = useState({
+        name: '',
+        services: [{ name: '', price: '' }]
+    });
+
+    // Timesheets week navigation (0 = current week, -1 = last week, etc.)
+    const [weekOffset, setWeekOffset] = useState(0);
+
+    // Pay week modal
+    const [payModal, setPayModal] = useState<{ employeeName: string; totalHours: number } | null>(null);
+    const [payRate, setPayRate] = useState('');
+
     // Derived lists for filter options
     const uniqueServices = useMemo(() => Array.from(new Set(washes.map(w => w.parsedService).filter(Boolean))), [washes]);
     const uniqueEmployees = useMemo(() => Array.from(new Set(washes.map(w => w.senderName).filter(Boolean))), [washes]);
 
+    // Week range for timesheets (Monday-start)
+    const weekStart = useMemo(() => startOfWeek(addWeeks(new Date(), weekOffset), { weekStartsOn: 6 }), [weekOffset]);
+    const weekEnd = useMemo(() => endOfWeek(weekStart, { weekStartsOn: 6 }), [weekStart]);
+    const weekEntries = useMemo(() =>
+        timeEntries.filter(t => {
+            if (!t.checkIn) return false;
+            return isWithinInterval(new Date(t.checkIn), { start: weekStart, end: weekEnd });
+        }),
+        [timeEntries, weekStart, weekEnd]
+    );
+
     useEffect(() => {
         const loadData = async () => {
             setLoading(true);
-            await Promise.all([fetchWashes(), fetchUsers(), fetchTimeEntries()]);
+            await Promise.all([fetchWashes(), fetchUsers(), fetchTimeEntries(), fetchDealers()]);
             setLoading(false);
         };
         loadData();
@@ -157,6 +208,69 @@ export default function Dashboard() {
         }
     };
 
+    const fetchDealers = async () => {
+        try {
+            const res = await fetch('/api/dealers');
+            const data = await res.json();
+            if (Array.isArray(data)) setDealers(data);
+        } catch (error) {
+            console.error('Error fetching dealers:', error);
+        }
+    };
+
+    const createDealer = async (e: React.FormEvent<HTMLFormElement>) => {
+        e.preventDefault();
+        const services = dealerForm.services
+            .filter(s => s.name.trim() && s.price)
+            .map(s => ({ name: s.name.trim(), price: parseFloat(s.price) }));
+        if (!dealerForm.name.trim() || services.length === 0) {
+            alert('Name and at least one service are required.');
+            return;
+        }
+        try {
+            const res = await fetch('/api/dealers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: dealerForm.name.trim(), services }),
+            });
+            if (res.ok) {
+                setShowAddDealerModal(false);
+                setDealerForm({ name: '', services: [{ name: '', price: '' }] });
+                fetchDealers();
+            } else {
+                alert('Failed to create dealer.');
+            }
+        } catch {
+            alert('An error occurred.');
+        }
+    };
+
+    const payBatch = async (dealerId: number) => {
+        if (!confirm('Mark current batch as PAID and close it?')) return;
+        try {
+            const res = await fetch(`/api/dealers/${dealerId}/pay`, { method: 'POST' });
+            if (res.ok) {
+                fetchDealers();
+            } else {
+                const err = await res.json();
+                alert(err.error || 'Failed to pay batch.');
+            }
+        } catch {
+            alert('An error occurred.');
+        }
+    };
+
+    const deleteDealer = async (id: number) => {
+        if (!confirm('Deactivate this dealer? Existing data will be preserved.')) return;
+        try {
+            const res = await fetch(`/api/dealers/${id}`, { method: 'DELETE' });
+            if (res.ok) fetchDealers();
+            else alert('Failed to deactivate dealer.');
+        } catch {
+            alert('An error occurred.');
+        }
+    };
+
     const deleteWash = async (id: number) => {
         if (!confirm('Are you sure you want to delete this log?')) return;
 
@@ -185,7 +299,7 @@ export default function Dashboard() {
         }
     };
 
-    const handleAddShift = async (e: React.FormEvent) => {
+    const handleAddShift = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
 
         // combine date and times into valid localized ISO strings
@@ -201,7 +315,6 @@ export default function Dashboard() {
                     checkIn: checkInDateTime.toISOString(),
                     checkOut: checkOutDateTime ? checkOutDateTime.toISOString() : null,
                     breakHours: addShiftForm.breakHours || 0,
-                    tips: addShiftForm.tips || 0,
                 }),
             });
 
@@ -210,10 +323,9 @@ export default function Dashboard() {
                 setAddShiftForm({
                     userId: '',
                     date: format(new Date(), 'yyyy-MM-dd'),
-                    checkInTime: '09:00',
-                    checkOutTime: '17:00',
+                    checkInTime: '09:30',
+                    checkOutTime: '18:00',
                     breakHours: '0',
-                    tips: '0'
                 });
                 fetchTimeEntries();
             } else {
@@ -251,7 +363,6 @@ export default function Dashboard() {
             checkInTime: format(checkInDate, 'HH:mm'),
             checkOutTime: checkOutDate ? format(checkOutDate, 'HH:mm') : '',
             breakHours: entry.breakHours.toString(),
-            tips: entry.tips.toString()
         });
     };
 
@@ -269,7 +380,6 @@ export default function Dashboard() {
                     checkIn: checkInDateTime.toISOString(),
                     checkOut: checkOutDateTime ? checkOutDateTime.toISOString() : null,
                     breakHours: editShiftForm.breakHours || 0,
-                    tips: editShiftForm.tips || 0,
                 }),
             });
 
@@ -463,6 +573,16 @@ export default function Dashboard() {
                 >
                     <Clock size={16} />
                     TIMESHEETS
+                </button>
+                <button
+                    onClick={() => setActiveTab('dealers')}
+                    className={`pb-3 text-sm font-semibold tracking-wide transition-all flex items-center gap-2 ${activeTab === 'dealers'
+                        ? 'text-emerald-400 border-b-2 border-emerald-500'
+                        : 'text-slate-500 hover:text-slate-300'
+                        }`}
+                >
+                    <Building2 size={16} />
+                    DEALERS
                 </button>
             </div>
 
@@ -755,47 +875,98 @@ export default function Dashboard() {
             )}
 
             {activeTab === 'timesheets' && (
-                <div className="space-y-8">
+                <div className="space-y-5">
                     {/* Header */}
-                    <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl flex justify-between items-center">
+                    <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                         <div>
                             <h2 className="text-xl font-semibold text-white">Employee Hours</h2>
                             <p className="text-sm text-slate-400 mt-1">Automated timesheet tracking based on bot check-ins, or manage manually.</p>
                         </div>
+                        <div className="flex items-center gap-3 flex-wrap">
+                            <div className="flex bg-slate-800 rounded-lg p-1">
+                                <button
+                                    onClick={() => setWeekOffset(0)}
+                                    className={`px-3 py-1.5 rounded-md text-xs font-bold tracking-wide transition-all ${weekOffset === 0 ? 'bg-slate-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                                >
+                                    ACTIVE WEEK
+                                </button>
+                                <button
+                                    onClick={() => { if (weekOffset === 0) setWeekOffset(-1); }}
+                                    className={`px-3 py-1.5 rounded-md text-xs font-bold tracking-wide transition-all ${weekOffset < 0 ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                                >
+                                    HISTORY
+                                </button>
+                            </div>
+                            <button
+                                onClick={() => setShowAddShiftModal(true)}
+                                className="flex items-center gap-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white px-4 py-2 rounded-lg font-medium transition-colors text-sm"
+                            >
+                                <CalendarIcon size={14} />
+                                Add Manual Shift
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Week Navigation */}
+                    <div className="flex items-center justify-center gap-4">
                         <button
-                            onClick={() => setShowAddShiftModal(true)}
-                            className="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
+                            onClick={() => setWeekOffset(o => o - 1)}
+                            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors border border-slate-700"
                         >
-                            <CalendarIcon size={16} />
-                            Add Shift
+                            <ChevronLeft size={18} />
+                        </button>
+                        <div className="text-center min-w-[220px]">
+                            <p className="text-white font-semibold text-sm">
+                                {format(weekStart, 'MMM d')} – {format(weekEnd, 'MMM d, yyyy')}
+                            </p>
+                            <p className={`text-xs font-bold mt-0.5 tracking-wide ${weekOffset === 0 ? 'text-emerald-400' : weekOffset === -1 ? 'text-amber-400' : 'text-blue-400'}`}>
+                                {weekOffset === 0 ? '● CURRENT WEEK' : weekOffset === -1 ? '● LAST WEEK' : '● ARCHIVED'}
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => setWeekOffset(o => Math.min(o + 1, 0))}
+                            disabled={weekOffset >= 0}
+                            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors border border-slate-700 disabled:opacity-25 disabled:cursor-not-allowed"
+                        >
+                            <ChevronRight size={18} />
                         </button>
                     </div>
 
-                    {/* Employee Tables */}
-                    {Array.from(new Set(timeEntries.filter(t => t.user).map(t => t.user.username))).map(employeeName => {
-                        const employeeEntries = timeEntries.filter(t => t.user && t.user.username === employeeName);
+                    {/* Stats Cards */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        {[
+                            { label: 'TOTAL HOURS', value: weekEntries.reduce((s, t) => s + (t.totalHours || 0), 0).toFixed(2), color: 'text-blue-400' },
+                            { label: 'TOTAL SHIFTS', value: String(weekEntries.length), color: 'text-emerald-400' },
+                            { label: 'EMPLOYEES', value: String(new Set(weekEntries.filter(t => t.user).map(t => t.user.username)).size), color: 'text-purple-400' },
+                            { label: 'WEEK STATUS', value: weekOffset === 0 ? 'ACTIVE' : weekOffset === -1 ? 'LAST WEEK' : 'ARCHIVED', color: weekOffset === 0 ? 'text-emerald-400' : weekOffset === -1 ? 'text-amber-400' : 'text-slate-300' },
+                        ].map((stat, i) => (
+                            <div key={i} className="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
+                                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{stat.label}</p>
+                                <p className={`text-2xl font-bold mt-1 ${stat.color}`}>{stat.value}</p>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Per-Employee Tables */}
+                    {Array.from(new Set(weekEntries.filter(t => t.user).map(t => t.user.username))).map(employeeName => {
+                        const employeeEntries = weekEntries.filter(t => t.user && t.user.username === employeeName);
                         const totalHours = employeeEntries.reduce((sum, t) => sum + (t.totalHours || 0), 0);
-                        const totalTips = employeeEntries.reduce((sum, t) => sum + (t.tips || 0), 0);
 
                         return (
                             <div key={employeeName} className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-                                <div className="p-4 border-b border-slate-800 bg-slate-800/20 flex justify-between items-center">
-                                    <h3 className="font-bold text-lg text-slate-200">{employeeName}</h3>
-                                    <div className="flex gap-4 text-sm">
-                                        <span className="text-slate-400">Total Hours: <strong className="text-blue-400">{totalHours.toFixed(2)}</strong></span>
-                                        <span className="text-slate-400">Total Tips: <strong className="text-emerald-400">${totalTips.toFixed(2)}</strong></span>
-                                    </div>
+                                <div className="px-5 py-4 flex justify-between items-center bg-slate-800/40 border-b border-slate-700/50">
+                                    <h3 className="font-bold text-lg text-white">{employeeName}</h3>
+                                    <span className="text-slate-400 text-sm">Total Hours: <strong className="text-blue-400">{totalHours.toFixed(2)}</strong></span>
                                 </div>
                                 <div className="overflow-x-auto">
-                                    <table className="w-full text-left border-collapse bg-slate-950/50">
-                                        <thead className="bg-[#5b9bd5]/80 text-white text-xs font-bold uppercase tracking-wider">
-                                            <tr>
-                                                <th className="p-3 border-r border-[#41709b]/50 w-32">Day of the week</th>
-                                                <th className="p-3 border-r border-[#41709b]/50">Check-in time</th>
-                                                <th className="p-3 border-r border-[#41709b]/50">Check-out time</th>
-                                                <th className="p-3 border-r border-[#41709b]/50">Break hours</th>
-                                                <th className="p-3 border-r border-[#41709b]/50">Total hours</th>
-                                                <th className="p-3 border-r border-[#41709b]/50">Tips</th>
+                                    <table className="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr className="bg-[#1a3a5c] text-slate-200 text-xs font-bold uppercase tracking-wider">
+                                                <th className="p-3 w-24">Day</th>
+                                                <th className="p-3">Check-in</th>
+                                                <th className="p-3">Check-out</th>
+                                                <th className="p-3">Break</th>
+                                                <th className="p-3">Total Hours</th>
                                                 <th className="p-3 text-right">Actions</th>
                                             </tr>
                                         </thead>
@@ -803,29 +974,24 @@ export default function Dashboard() {
                                             {employeeEntries.map((entry) => {
                                                 const checkInDate = new Date(entry.checkIn);
                                                 const checkOutDate = entry.checkOut ? new Date(entry.checkOut) : null;
-
                                                 return (
-                                                    <tr key={entry.id} className="hover:bg-slate-800/50 transition-colors">
-                                                        <td className="p-3 border-r border-slate-800/50 text-slate-300 font-medium">
-                                                            {format(checkInDate, 'EEE')}
+                                                    <tr key={entry.id} className="hover:bg-slate-800/40 transition-colors">
+                                                        <td className="p-3">
+                                                            <div className="font-semibold text-slate-200 text-sm">{format(checkInDate, 'EEE')}</div>
+                                                            <div className="text-slate-600 text-xs">{format(checkInDate, 'MMM d')}</div>
                                                         </td>
-                                                        <td className="p-3 border-r border-slate-800/50 text-slate-300">
-                                                            {format(checkInDate, 'H:mm')}
+                                                        <td className="p-3 text-slate-200 font-mono text-sm">{format(checkInDate, 'H:mm')}</td>
+                                                        <td className="p-3 font-mono text-sm">
+                                                            {checkOutDate
+                                                                ? <span className="text-slate-200">{format(checkOutDate, 'H:mm')}</span>
+                                                                : <span className="text-amber-400 text-xs font-bold tracking-wide">● ACTIVE</span>}
                                                         </td>
-                                                        <td className="p-3 border-r border-slate-800/50 text-slate-300">
-                                                            {checkOutDate ? format(checkOutDate, 'H:mm') : <span className="text-amber-400 italic">Active</span>}
-                                                        </td>
-                                                        <td className="p-3 border-r border-slate-800/50 text-slate-300">
-                                                            {entry.breakHours}
-                                                        </td>
-                                                        <td className="p-3 border-r border-slate-800/50 font-bold text-blue-400">
-                                                            {entry.totalHours ? entry.totalHours.toFixed(2) : '-'}
-                                                        </td>
-                                                        <td className="p-3 border-r border-slate-800/50 text-emerald-400 font-medium">
-                                                            {entry.tips > 0 ? `$${entry.tips.toFixed(2)}` : ''}
+                                                        <td className="p-3 text-slate-400 text-sm">{entry.breakHours}h</td>
+                                                        <td className="p-3 font-bold text-blue-400 text-sm">
+                                                            {entry.totalHours ? entry.totalHours.toFixed(2) : '—'}
                                                         </td>
                                                         <td className="p-3 text-right">
-                                                            <div className="flex items-center justify-end gap-2">
+                                                            <div className="flex items-center justify-end gap-1">
                                                                 <button
                                                                     onClick={() => startEditShift(entry)}
                                                                     className="p-1.5 text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
@@ -845,25 +1011,256 @@ export default function Dashboard() {
                                                     </tr>
                                                 );
                                             })}
-                                            {employeeEntries.length === 0 && (
-                                                <tr>
-                                                    <td colSpan={6} className="p-6 text-center text-slate-500">
-                                                        No shifts found.
-                                                    </td>
-                                                </tr>
-                                            )}
                                         </tbody>
                                     </table>
+                                </div>
+                                <div className="px-5 py-3 border-t border-slate-800/80 flex justify-end items-center bg-slate-950/30">
+                                    {weekOffset <= -2 ? (
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-slate-500 text-sm">Paid:</span>
+                                            <span className="text-emerald-400 font-bold text-lg">${(totalHours * 10).toFixed(2)}</span>
+                                        </div>
+                                    ) : (
+                                        <button
+                                            onClick={() => {
+                                                setPayModal({ employeeName, totalHours });
+                                                setPayRate(weekOffset <= -2 ? '10' : '');
+                                            }}
+                                            className="flex items-center gap-2 px-4 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-600/30 text-emerald-400 rounded-lg text-sm font-semibold transition-colors"
+                                        >
+                                            <DollarSign size={14} />
+                                            Pay Week
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         );
                     })}
 
-                    {timeEntries.length === 0 && (
-                        <div className="text-center p-12 text-slate-500 border border-slate-800 rounded-2xl bg-slate-900/50">
-                            No timesheet data available. Employees need to use `/checkin` and `/checkout`.
+                    {weekEntries.length === 0 && (
+                        <div className="text-center p-16 text-slate-500 border border-slate-800 rounded-2xl bg-slate-900/50">
+                            <Clock size={36} className="mx-auto mb-3 opacity-20" />
+                            <p className="font-medium">No shifts recorded for this week.</p>
+                            <p className="text-xs mt-1 text-slate-600">
+                                {weekOffset === 0
+                                    ? 'Employees need to use /checkin and /checkout.'
+                                    : 'No data for this period. Try navigating to a different week.'}
+                            </p>
                         </div>
                     )}
+
+                    {/* Weekly Pay Summary */}
+                    {weekEntries.length > 0 && (
+                        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+                            <div className="px-5 py-4 bg-slate-800/40 border-b border-slate-700/50 flex justify-between items-center">
+                                <div>
+                                    <h3 className="font-semibold text-slate-200">Weekly Pay Summary</h3>
+                                    <p className="text-xs text-slate-500 mt-0.5">{format(weekStart, 'MMM d')} – {format(weekEnd, 'MMM d, yyyy')}</p>
+                                </div>
+                                {weekOffset <= -2 && (
+                                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">@ $10.00 / hr</span>
+                                )}
+                            </div>
+                            <div className="p-5 space-y-3">
+                                {Array.from(new Set(weekEntries.filter(t => t.user).map(t => t.user.username))).map(name => {
+                                    const hrs = weekEntries.filter(t => t.user?.username === name).reduce((s, t) => s + (t.totalHours || 0), 0);
+                                    return (
+                                        <div key={name} className="flex justify-between items-center text-sm">
+                                            <span className="text-slate-400">{name}</span>
+                                            <div className="flex items-center gap-6">
+                                                <span className="text-slate-500 tabular-nums">{hrs.toFixed(2)} hrs</span>
+                                                {weekOffset <= -2
+                                                    ? <span className="text-emerald-400 font-semibold tabular-nums w-20 text-right">${(hrs * 10).toFixed(2)}</span>
+                                                    : <span className="text-slate-700 w-20 text-right">—</span>}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                <div className="border-t border-slate-700/50 pt-3 mt-1 flex justify-between items-center">
+                                    <span className="text-white font-bold">Total</span>
+                                    <div className="flex items-center gap-6">
+                                        <span className="text-blue-400 font-bold tabular-nums">
+                                            {weekEntries.reduce((s, t) => s + (t.totalHours || 0), 0).toFixed(2)} hrs
+                                        </span>
+                                        {weekOffset <= -2
+                                            ? <span className="text-emerald-400 font-extrabold text-xl tabular-nums w-20 text-right">
+                                                ${(weekEntries.reduce((s, t) => s + (t.totalHours || 0), 0) * 10).toFixed(2)}
+                                              </span>
+                                            : <span className="text-slate-500 text-sm w-20 text-right">In progress</span>}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {activeTab === 'dealers' && (
+                <div className="space-y-5">
+                    {/* Header */}
+                    <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl flex justify-between items-center">
+                        <div>
+                            <h2 className="text-xl font-semibold text-white">Dealer Management</h2>
+                            <p className="text-sm text-slate-400 mt-1">Track dealer washes per batch. One open batch per dealer at a time.</p>
+                        </div>
+                        <button
+                            onClick={() => setShowAddDealerModal(true)}
+                            className="flex items-center gap-2 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-600/30 text-emerald-400 px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+                        >
+                            <Plus size={16} />
+                            Add Dealer
+                        </button>
+                    </div>
+
+                    {dealers.length === 0 && (
+                        <div className="text-center p-16 text-slate-500 border border-slate-800 rounded-2xl bg-slate-900/50">
+                            <Building2 size={36} className="mx-auto mb-3 opacity-20" />
+                            <p className="font-medium">No dealers configured yet.</p>
+                            <p className="text-xs mt-1 text-slate-600">Click &quot;Add Dealer&quot; to get started.</p>
+                        </div>
+                    )}
+
+                    {dealers.map(dealer => {
+                        const openBatch = dealer.batches.find(b => b.status === 'OPEN');
+                        const paidBatches = dealer.batches.filter(b => b.status === 'PAID');
+                        const openTotal = openBatch ? openBatch.washes.reduce((s, w) => s + w.price, 0) : 0;
+
+                        return (
+                            <div key={dealer.id} className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+                                {/* Dealer Header */}
+                                <div className="px-5 py-4 flex justify-between items-center bg-slate-800/40 border-b border-slate-700/50">
+                                    <div className="flex items-center gap-3">
+                                        <Building2 size={20} className="text-emerald-400" />
+                                        <h3 className="font-bold text-lg text-white">{dealer.name}</h3>
+                                        <span className="text-xs text-slate-500">{dealer.services.length} service{dealer.services.length !== 1 ? 's' : ''}</span>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        {openBatch && (
+                                            <button
+                                                onClick={() => payBatch(dealer.id)}
+                                                className="flex items-center gap-2 px-4 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-600/30 text-emerald-400 rounded-lg text-sm font-semibold transition-colors"
+                                            >
+                                                <DollarSign size={14} />
+                                                Pay Batch (${openTotal.toFixed(2)})
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={() => deleteDealer(dealer.id)}
+                                            className="p-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                                            title="Deactivate Dealer"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Services chips */}
+                                <div className="px-5 py-3 flex flex-wrap gap-2 border-b border-slate-800/50 bg-slate-950/20">
+                                    {dealer.services.map((svc, i) => (
+                                        <span key={i} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-slate-800 border border-slate-700 text-slate-300">
+                                            {svc.name}
+                                            <span className="text-emerald-400 font-semibold">${svc.price}</span>
+                                        </span>
+                                    ))}
+                                </div>
+
+                                {/* Open Batch */}
+                                {openBatch ? (
+                                    <div>
+                                        <div className="px-5 py-3 flex justify-between items-center border-b border-slate-800/30 bg-emerald-900/5">
+                                            <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                                                ● Open Batch — since {format(new Date(openBatch.openedAt), 'MMM d, yyyy')}
+                                            </span>
+                                            <span className="text-emerald-400 font-bold text-sm">
+                                                {openBatch.washes.length} wash{openBatch.washes.length !== 1 ? 'es' : ''} · Total: ${openTotal.toFixed(2)}
+                                            </span>
+                                        </div>
+                                        {openBatch.washes.length > 0 ? (
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-left">
+                                                    <thead>
+                                                        <tr className="bg-slate-950/40 text-slate-500 text-xs uppercase tracking-wider">
+                                                            <th className="px-5 py-2">Date</th>
+                                                            <th className="px-5 py-2">Service</th>
+                                                            <th className="px-5 py-2">Employee</th>
+                                                            <th className="px-5 py-2">Comments</th>
+                                                            <th className="px-5 py-2 text-right">Price</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-800/40">
+                                                        {openBatch.washes.map(wash => (
+                                                            <tr key={wash.id} className="hover:bg-slate-800/20 transition-colors">
+                                                                <td className="px-5 py-2.5 text-slate-400 text-sm">{format(new Date(wash.createdAt), 'MMM d, h:mm a')}</td>
+                                                                <td className="px-5 py-2.5 text-slate-200 font-medium text-sm">{wash.serviceName}</td>
+                                                                <td className="px-5 py-2.5 text-slate-400 text-sm">{wash.senderName}</td>
+                                                                <td className="px-5 py-2.5 text-slate-500 text-sm italic">{wash.comments || '—'}</td>
+                                                                <td className="px-5 py-2.5 text-emerald-400 font-bold text-sm text-right">${wash.price.toFixed(2)}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        ) : (
+                                            <div className="px-5 py-8 text-center text-slate-600 text-sm">No washes logged in this batch yet.</div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="px-5 py-8 text-center text-slate-600 text-sm">
+                                        No open batch. A new batch opens automatically when the next wash is logged via the bot.
+                                    </div>
+                                )}
+
+                                {/* Past Batches */}
+                                {paidBatches.length > 0 && (
+                                    <div className="border-t border-slate-800">
+                                        <button
+                                            onClick={() => {
+                                                const newSet = new Set(expandedBatches);
+                                                if (newSet.has(dealer.id)) newSet.delete(dealer.id);
+                                                else newSet.add(dealer.id);
+                                                setExpandedBatches(newSet);
+                                            }}
+                                            className="w-full px-5 py-3 flex justify-between items-center text-slate-500 hover:text-slate-300 hover:bg-slate-800/20 transition-colors text-sm"
+                                        >
+                                            <span className="font-medium">{paidBatches.length} paid batch{paidBatches.length !== 1 ? 'es' : ''}</span>
+                                            <ChevronRight size={16} className={`transition-transform ${expandedBatches.has(dealer.id) ? 'rotate-90' : ''}`} />
+                                        </button>
+                                        {expandedBatches.has(dealer.id) && (
+                                            <div className="space-y-3 px-5 pb-4">
+                                                {paidBatches.map(batch => {
+                                                    const batchTotal = batch.washes.reduce((s, w) => s + w.price, 0);
+                                                    return (
+                                                        <div key={batch.id} className="bg-slate-950/40 border border-slate-800/50 rounded-xl overflow-hidden">
+                                                            <div className="px-4 py-2.5 flex justify-between items-center border-b border-slate-800/30">
+                                                                <span className="text-xs text-slate-500">
+                                                                    {format(new Date(batch.openedAt), 'MMM d')} – {batch.paidAt ? format(new Date(batch.paidAt), 'MMM d, yyyy') : ''}
+                                                                </span>
+                                                                <div className="flex items-center gap-3">
+                                                                    <span className="text-xs text-slate-500">{batch.washes.length} wash{batch.washes.length !== 1 ? 'es' : ''}</span>
+                                                                    <span className="text-emerald-400 font-bold text-sm">${batchTotal.toFixed(2)}</span>
+                                                                    <span className="text-xs bg-slate-700 text-slate-400 px-2 py-0.5 rounded-full">PAID</span>
+                                                                </div>
+                                                            </div>
+                                                            <div className="divide-y divide-slate-800/30">
+                                                                {batch.washes.map(w => (
+                                                                    <div key={w.id} className="px-4 py-2 flex justify-between items-center text-xs">
+                                                                        <span className="text-slate-500">{format(new Date(w.createdAt), 'MMM d')}</span>
+                                                                        <span className="text-slate-300">{w.serviceName}</span>
+                                                                        <span className="text-slate-500">{w.senderName}</span>
+                                                                        <span className="text-emerald-400 font-semibold">${w.price.toFixed(2)}</span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             )}
 
@@ -929,6 +1326,170 @@ export default function Dashboard() {
                 )
             }
 
+            {/* Pay Week Modal */}
+            {payModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xl font-bold text-white">Pay Week</h3>
+                            <button onClick={() => setPayModal(null)} className="text-slate-500 hover:text-white">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            {/* Summary */}
+                            <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 space-y-2.5 text-sm">
+                                <div className="flex justify-between items-center">
+                                    <span className="text-slate-400">Employee</span>
+                                    <span className="text-white font-semibold">{payModal.employeeName}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-slate-400">Period</span>
+                                    <span className="text-slate-300">{format(weekStart, 'MMM d')} – {format(weekEnd, 'MMM d, yyyy')}</span>
+                                </div>
+                                <div className="flex justify-between items-center border-t border-slate-700/50 pt-2.5">
+                                    <span className="text-slate-400">Hours Worked</span>
+                                    <span className="text-blue-400 font-bold text-base">{payModal.totalHours.toFixed(2)} hrs</span>
+                                </div>
+                            </div>
+
+                            {/* Rate — fixed for fully archived (2+ weeks back), editable otherwise */}
+                            {weekOffset <= -2 ? (
+                                <div className="flex justify-between items-center bg-slate-800/50 border border-slate-700/50 rounded-xl px-4 py-3 text-sm">
+                                    <span className="text-slate-400">Rate Applied</span>
+                                    <span className="text-slate-200 font-semibold">$10.00 / hr <span className="text-slate-600 font-normal text-xs ml-1">(archived rate)</span></span>
+                                </div>
+                            ) : (
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-400 mb-1">Hourly Rate ($)</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={payRate}
+                                        onChange={e => setPayRate(e.target.value)}
+                                        placeholder="e.g. 15.00"
+                                        autoFocus
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/30 outline-none transition-all"
+                                    />
+                                </div>
+                            )}
+
+                            {/* Result */}
+                            {parseFloat(payRate) > 0 && (
+                                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-5 text-center">
+                                    <p className="text-xs text-emerald-500 uppercase tracking-wider font-bold mb-2">Total to Pay</p>
+                                    <p className="text-4xl font-extrabold text-emerald-400 tracking-tight">
+                                        ${(payModal.totalHours * parseFloat(payRate)).toFixed(2)}
+                                    </p>
+                                    <p className="text-xs text-slate-500 mt-2">
+                                        {payModal.totalHours.toFixed(2)} hrs × ${parseFloat(payRate).toFixed(2)}/hr
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+
+                        <button
+                            onClick={() => setPayModal(null)}
+                            className="w-full mt-6 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-medium transition-colors text-slate-300"
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Add Shift Modal */}
+            {showAddShiftModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xl font-bold">Add Manual Shift</h3>
+                            <button onClick={() => setShowAddShiftModal(false)} className="text-slate-500 hover:text-white">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <form onSubmit={handleAddShift} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-400 mb-1">Employee</label>
+                                <select
+                                    value={addShiftForm.userId}
+                                    onChange={e => setAddShiftForm(prev => ({ ...prev, userId: e.target.value }))}
+                                    required
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
+                                >
+                                    <option value="">Select employee...</option>
+                                    {users.map(u => (
+                                        <option key={u.id} value={u.id}>{u.username} ({u.role})</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-400 mb-1">Date</label>
+                                <input
+                                    type="date"
+                                    value={addShiftForm.date}
+                                    onChange={e => setAddShiftForm(prev => ({ ...prev, date: e.target.value }))}
+                                    required
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-400 mb-1">Check-in</label>
+                                    <input
+                                        type="time"
+                                        value={addShiftForm.checkInTime}
+                                        onChange={e => setAddShiftForm(prev => ({ ...prev, checkInTime: e.target.value }))}
+                                        required
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-400 mb-1">Check-out</label>
+                                    <input
+                                        type="time"
+                                        value={addShiftForm.checkOutTime}
+                                        onChange={e => setAddShiftForm(prev => ({ ...prev, checkOutTime: e.target.value }))}
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
+                                    />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-400 mb-1">Break (Hours)</label>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        min="0"
+                                        value={addShiftForm.breakHours}
+                                        onChange={e => setAddShiftForm(prev => ({ ...prev, breakHours: e.target.value }))}
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex gap-3 mt-6">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAddShiftModal(false)}
+                                    className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-medium transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="flex-1 py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <Save size={18} />
+                                    Add Shift
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
             {/* Edit Shift Modal */}
             {
                 editingShift && (
@@ -982,16 +1543,6 @@ export default function Dashboard() {
                                             className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
                                         />
                                     </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-400 mb-1">Tips ($)</label>
-                                        <input
-                                            type="number"
-                                            step="0.01"
-                                            value={editShiftForm.tips}
-                                            onChange={e => setEditShiftForm(prev => ({ ...prev, tips: e.target.value }))}
-                                            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none"
-                                        />
-                                    </div>
                                 </div>
                             </div>
 
@@ -1014,6 +1565,98 @@ export default function Dashboard() {
                     </div>
                 )
             }
+            {/* Add Dealer Modal */}
+            {showAddDealerModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-lg shadow-2xl">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xl font-bold text-white">Add New Dealer</h3>
+                            <button onClick={() => setShowAddDealerModal(false)} className="text-slate-500 hover:text-white"><X size={20} /></button>
+                        </div>
+                        <form onSubmit={createDealer} className="space-y-5">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-400 mb-1">Dealer Name</label>
+                                <input
+                                    type="text"
+                                    value={dealerForm.name}
+                                    onChange={e => setDealerForm(prev => ({ ...prev, name: e.target.value }))}
+                                    placeholder="e.g. AutoZone Fleet"
+                                    required
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-emerald-500/50 outline-none"
+                                />
+                            </div>
+                            <div>
+                                <div className="flex justify-between items-center mb-2">
+                                    <label className="text-sm font-medium text-slate-400">Services &amp; Prices</label>
+                                    <button
+                                        type="button"
+                                        onClick={() => setDealerForm(prev => ({ ...prev, services: [...prev.services, { name: '', price: '' }] }))}
+                                        className="flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
+                                    >
+                                        <Plus size={14} />
+                                        Add Row
+                                    </button>
+                                </div>
+                                <div className="space-y-2">
+                                    {dealerForm.services.map((svc, i) => (
+                                        <div key={i} className="flex gap-2 items-center">
+                                            <input
+                                                type="text"
+                                                placeholder="Service name (e.g. Sedan)"
+                                                value={svc.name}
+                                                onChange={e => {
+                                                    const updated = [...dealerForm.services];
+                                                    updated[i] = { ...updated[i], name: e.target.value };
+                                                    setDealerForm(prev => ({ ...prev, services: updated }));
+                                                }}
+                                                className="flex-1 bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-sm focus:ring-2 focus:ring-emerald-500/50 outline-none"
+                                            />
+                                            <input
+                                                type="number"
+                                                placeholder="Price $"
+                                                min="0"
+                                                step="0.01"
+                                                value={svc.price}
+                                                onChange={e => {
+                                                    const updated = [...dealerForm.services];
+                                                    updated[i] = { ...updated[i], price: e.target.value };
+                                                    setDealerForm(prev => ({ ...prev, services: updated }));
+                                                }}
+                                                className="w-24 bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-sm focus:ring-2 focus:ring-emerald-500/50 outline-none"
+                                            />
+                                            {dealerForm.services.length > 1 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setDealerForm(prev => ({ ...prev, services: prev.services.filter((_, idx) => idx !== i) }))}
+                                                    className="p-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                                                >
+                                                    <Minus size={14} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="flex gap-3 mt-6">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAddDealerModal(false)}
+                                    className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-medium transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <Save size={18} />
+                                    Create Dealer
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div >
     );
 }

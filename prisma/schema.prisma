@@ -12,7 +12,7 @@ datasource db {
 
 model User {
   id          Int         @id @default(autoincrement())
-  telegramId  String      @unique
+  telegramId  String?     @unique
   username    String?
   role        String      @default("EMPLOYEE") // "OWNER" or "EMPLOYEE"
   createdAt   DateTime    @default(now())
@@ -35,13 +35,48 @@ model Wash {
 model BotSession {
   id              Int      @id @default(autoincrement())
   chatId          String   @unique
-  step            String   @default("start") // "start", "awaiting_price", "awaiting_addon", etc.
+  step            String   @default("start")
   carType         String?
   service         String?
   basePrice       Float?
-  addons          String? // JSON string or comma-separated list
+  addons          String?
   totalAddonPrice Float    @default(0)
+  dealerId        Int?
   updatedAt       DateTime @updatedAt
+}
+
+model Dealer {
+  id        Int           @id @default(autoincrement())
+  name      String
+  services  Json
+  isActive  Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  batches   DealerBatch[]
+  washes    DealerWash[]
+}
+
+model DealerBatch {
+  id       Int          @id @default(autoincrement())
+  dealerId Int
+  dealer   Dealer       @relation(fields: [dealerId], references: [id])
+  openedAt DateTime     @default(now())
+  paidAt   DateTime?
+  status   String       @default("OPEN")
+  washes   DealerWash[]
+}
+
+model DealerWash {
+  id          Int         @id @default(autoincrement())
+  dealerId    Int
+  dealer      Dealer      @relation(fields: [dealerId], references: [id])
+  batchId     Int
+  batch       DealerBatch @relation(fields: [batchId], references: [id])
+  serviceName String
+  price       Float
+  comments    String?
+  senderName  String
+  senderId    String
+  createdAt   DateTime    @default(now())
 }
 
 model InviteToken {
@@ -58,8 +93,7 @@ model TimeEntry {
   user       User      @relation(fields: [userId], references: [id])
   checkIn    DateTime
   checkOut   DateTime? // Null if currently checked in
-  breakHours Float     @default(0) // Duration of break in decimal hours
-  totalHours Float? // Calculated upon checkout
-  tips       Float     @default(0) // Optional tips logged for the day
+  breakHours Float     @default(0)
+  totalHours Float?
   createdAt  DateTime  @default(now())
 }

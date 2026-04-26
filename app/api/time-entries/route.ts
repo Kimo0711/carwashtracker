@@ -31,14 +31,13 @@ export async function POST(request: Request) {
     try {
         const body = await request.json();
 
-        let { userId, checkIn, checkOut, breakHours, tips } = body;
+        let { userId, checkIn, checkOut, breakHours } = body;
 
         if (!userId || !checkIn) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
         }
 
         breakHours = parseFloat(breakHours) || 0;
-        tips = parseFloat(tips) || 0;
 
         const inTime = new Date(checkIn);
         let outTime = null;
@@ -57,7 +56,6 @@ export async function POST(request: Request) {
                 checkIn: inTime,
                 checkOut: outTime,
                 breakHours,
-                tips,
                 totalHours
             }
         });
