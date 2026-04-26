@@ -349,7 +349,7 @@ export async function POST(req: Request) {
                     await prisma.inviteToken.create({
                         data: {
                             token,
-                            createdBy: user.telegramId
+                            createdBy: user.telegramId ?? chatId
                         }
                     });
                     const botInfo = await bot.getMe();
@@ -456,8 +456,8 @@ export async function POST(req: Request) {
                             serviceName: session.service,
                             price: session.basePrice,
                             comments: comment,
-                            senderName: user.username || user.telegramId,
-                            senderId: user.telegramId,
+                            senderName: user.username || user.telegramId || chatId,
+                            senderId: user.telegramId ?? chatId,
                         }
                     });
                     const dealer = await prisma.dealer.findUnique({ where: { id: session.dealerId! } });
