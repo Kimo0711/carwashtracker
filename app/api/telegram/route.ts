@@ -18,12 +18,12 @@ const CAR_TYPES = ['Sedan', 'SUV', 'LG SUV', 'F150', 'Van', 'Cargo Truck'];
 const SERVICES = ['Inside Outside', 'Outside Only', 'Inside Only', 'Shampoo'];
 
 const PRICES: Record<string, Record<string, number>> = {
-    'Sedan': { 'Inside Outside': 28, 'Outside Only': 20, 'Inside Only': 15 },
-    'SUV': { 'Inside Outside': 32, 'Outside Only': 25, 'Inside Only': 20 },
-    'LG SUV': { 'Inside Outside': 38, 'Outside Only': 30, 'Inside Only': 25 },
-    'F150': { 'Inside Outside': 42, 'Outside Only': 32, 'Inside Only': 28 },
-    'Van': { 'Inside Outside': 35, 'Outside Only': 25, 'Inside Only': 22 },
-    'Cargo Truck': { 'Inside Outside': 50, 'Outside Only': 35, 'Inside Only': 30 }
+    'Sedan': { 'Inside Outside': 35, 'Outside Only': 20, 'Inside Only': 15 },
+    'SUV': { 'Inside Outside': 40, 'Outside Only': 25, 'Inside Only': 20 },
+    'LG SUV': { 'Inside Outside': 45, 'Outside Only': 30, 'Inside Only': 25 },
+    'F150': { 'Inside Outside': 55, 'Outside Only': 32, 'Inside Only': 28 },
+    'Van': { 'Inside Outside': 45, 'Outside Only': 25, 'Inside Only': 22 },
+    'Cargo Truck': { 'Inside Outside': 55, 'Outside Only': 35, 'Inside Only': 30 }
 };
 
 const ADDONS = ['Tire Shine', 'Armoall Inside', 'Wax', 'Trunk Vacuum', 'Extra Dirty', 'Done with Add-ons'];
