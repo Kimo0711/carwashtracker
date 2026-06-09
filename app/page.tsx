@@ -110,6 +110,8 @@ export default function Dashboard() {
     // Team State
     const [inviteLink, setInviteLink] = useState('');
     const [isGeneratingInvite, setIsGeneratingInvite] = useState(false);
+    const [showAddEmployeeModal, setShowAddEmployeeModal] = useState(false);
+    const [newEmployeeName, setNewEmployeeName] = useState('');
 
     // Dealers State
     const [dealers, setDealers] = useState<Dealer[]>([]);
@@ -239,6 +241,27 @@ export default function Dashboard() {
                 fetchDealers();
             } else {
                 alert('Failed to create dealer.');
+            }
+        } catch {
+            alert('An error occurred.');
+        }
+    };
+
+    const addManualEmployee = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newEmployeeName.trim()) return;
+        try {
+            const res = await fetch('/api/users', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: newEmployeeName.trim() }),
+            });
+            if (res.ok) {
+                setShowAddEmployeeModal(false);
+                setNewEmployeeName('');
+                fetchUsers();
+            } else {
+                alert('Failed to add employee.');
             }
         } catch {
             alert('An error occurred.');
@@ -792,13 +815,22 @@ export default function Dashboard() {
                             <p className="text-sm text-slate-400 mt-1">Manage bot access for your employees.</p>
                         </div>
                         <div className="flex flex-col items-end gap-2">
-                            <button
-                                onClick={generateInvite}
-                                disabled={isGeneratingInvite}
-                                className="bg-gradient-to-r flex items-center gap-2 from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors shadow-lg disabled:opacity-50"
-                            >
-                                {isGeneratingInvite ? 'Generating...' : 'Generate Invite Link'}
-                            </button>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setShowAddEmployeeModal(true)}
+                                    className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors shadow-lg"
+                                >
+                                    <Plus size={16} />
+                                    Add Employee
+                                </button>
+                                <button
+                                    onClick={generateInvite}
+                                    disabled={isGeneratingInvite}
+                                    className="bg-gradient-to-r flex items-center gap-2 from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors shadow-lg disabled:opacity-50"
+                                >
+                                    {isGeneratingInvite ? 'Generating...' : 'Telegram Invite'}
+                                </button>
+                            </div>
                             {inviteLink && (
                                 <div className="text-xs text-slate-300 mt-1 bg-slate-800 p-2 rounded flex flex-col gap-1 items-end border border-emerald-500/50">
                                     <span>Send this link to the new employee:</span>
@@ -1483,6 +1515,44 @@ export default function Dashboard() {
                                 >
                                     <Save size={18} />
                                     Add Shift
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Add Employee Modal */}
+            {showAddEmployeeModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xl font-bold text-white">Add Employee</h3>
+                            <button onClick={() => { setShowAddEmployeeModal(false); setNewEmployeeName(''); }} className="text-slate-500 hover:text-white">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <form onSubmit={addManualEmployee} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-400 mb-1">Employee Name</label>
+                                <input
+                                    type="text"
+                                    value={newEmployeeName}
+                                    onChange={e => setNewEmployeeName(e.target.value)}
+                                    placeholder="e.g. Ahmed"
+                                    required
+                                    autoFocus
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:ring-2 focus:ring-purple-500/50 outline-none"
+                                />
+                            </div>
+                            <p className="text-xs text-slate-500">This adds the employee for manual timesheet tracking. To give bot access, use Telegram Invite instead.</p>
+                            <div className="flex gap-3 pt-2">
+                                <button type="button" onClick={() => { setShowAddEmployeeModal(false); setNewEmployeeName(''); }} className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-medium transition-colors">
+                                    Cancel
+                                </button>
+                                <button type="submit" className="flex-1 py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-medium transition-colors flex items-center justify-center gap-2">
+                                    <Plus size={16} />
+                                    Add
                                 </button>
                             </div>
                         </form>

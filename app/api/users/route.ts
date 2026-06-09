@@ -26,6 +26,27 @@ export async function GET() {
     }
 }
 
+export async function PUT(request: Request) {
+    try {
+        const body = await request.json();
+        const { name } = body;
+        if (!name?.trim()) {
+            return NextResponse.json({ error: 'Name is required' }, { status: 400 });
+        }
+        const user = await prisma.user.create({
+            data: {
+                telegramId: null,
+                username: name.trim(),
+                role: 'EMPLOYEE',
+            }
+        });
+        return NextResponse.json(user);
+    } catch (error) {
+        console.error('Failed to create manual employee:', error);
+        return NextResponse.json({ error: 'Failed to create employee' }, { status: 500 });
+    }
+}
+
 export async function POST(request: Request) {
     try {
         const crypto = require('crypto');
