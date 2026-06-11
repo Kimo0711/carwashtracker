@@ -45,6 +45,7 @@ interface Wash {
     parsedCar: string;
     parsedPrice: number;
     parsedService: string;
+    paymentMethod: string | null;
     senderName: string;
     senderId: string;
     createdAt: string;
@@ -757,7 +758,20 @@ export default function Dashboard() {
                                                     {wash.parsedService}
                                                 </span>
                                             </td>
-                                            <td className="p-5 text-emerald-400 font-bold font-mono tracking-tight">${wash.parsedPrice.toFixed(2)}</td>
+                                            <td className="p-5">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-emerald-400 font-bold font-mono tracking-tight">${wash.parsedPrice.toFixed(2)}</span>
+                                                    {wash.paymentMethod && (
+                                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${wash.paymentMethod === 'CARD'
+                                                            ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+                                                            : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                                                        }`}>
+                                                            {wash.paymentMethod === 'CARD' ? '💳' : '💵'}
+                                                            {wash.paymentMethod}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </td>
                                             <td className="p-5">
                                                 <div className="flex items-center gap-2 text-slate-300">
                                                     <div className="w-6 h-6 rounded-full bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-[10px] border border-slate-700 shadow-inner">
