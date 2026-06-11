@@ -18,12 +18,12 @@ const CAR_TYPES = ['Sedan', 'SUV', 'LG SUV', 'F150', 'Van', 'Cargo Truck'];
 const SERVICES = ['Inside Outside', 'Outside Only', 'Inside Only', 'Shampoo'];
 
 const PRICES: Record<string, Record<string, number>> = {
-    'Sedan': { 'Inside Outside': 28, 'Outside Only': 20, 'Inside Only': 15 },
-    'SUV': { 'Inside Outside': 32, 'Outside Only': 25, 'Inside Only': 20 },
-    'LG SUV': { 'Inside Outside': 38, 'Outside Only': 30, 'Inside Only': 25 },
-    'F150': { 'Inside Outside': 42, 'Outside Only': 32, 'Inside Only': 28 },
-    'Van': { 'Inside Outside': 35, 'Outside Only': 25, 'Inside Only': 22 },
-    'Cargo Truck': { 'Inside Outside': 50, 'Outside Only': 35, 'Inside Only': 30 }
+    'Sedan': { 'Inside Outside': 35, 'Outside Only': 20, 'Inside Only': 15 },
+    'SUV': { 'Inside Outside': 40, 'Outside Only': 25, 'Inside Only': 20 },
+    'LG SUV': { 'Inside Outside': 45, 'Outside Only': 30, 'Inside Only': 25 },
+    'F150': { 'Inside Outside': 55, 'Outside Only': 32, 'Inside Only': 28 },
+    'Van': { 'Inside Outside': 45, 'Outside Only': 25, 'Inside Only': 22 },
+    'Cargo Truck': { 'Inside Outside': 55, 'Outside Only': 35, 'Inside Only': 30 }
 };
 
 const ADDONS = ['Tire Shine', 'Armoall Inside', 'Wax', 'Trunk Vacuum', 'Extra Dirty', 'Done with Add-ons'];
@@ -39,20 +39,21 @@ const ADDON_PRICES: Record<string, Record<string, number>> = {
 // --- Helper Functions ---
 
 async function getAuthorizedUser(telegramId: string, username?: string, firstName?: string) {
-    // Parallelize user check and count for new systems
-    const [user, userCount] = await Promise.all([
-        prisma.user.findUnique({ where: { telegramId } }),
-        prisma.user.count()
-    ]);
+    let user = await prisma.user.findUnique({
+        where: { telegramId }
+    });
 
-    if (!user && userCount === 0) {
-        return await prisma.user.create({
+    // If no users exist, make the first one the owner
+    const userCount = await prisma.user.count();
+    if (userCount === 0) {
+        user = await prisma.user.create({
             data: {
                 telegramId,
                 username: username || firstName || 'Owner',
                 role: 'OWNER'
             }
         });
+        console.log(`First user registered as OWNER: ${user.username} (${telegramId})`);
     }
 
     return user;
@@ -84,7 +85,8 @@ async function resetSession(chatId: string) {
             service: null,
             basePrice: null,
             addons: null,
-            totalAddonPrice: 0
+            totalAddonPrice: 0,
+            dealerId: null
         },
         create: {
             chatId,
@@ -214,11 +216,7 @@ export async function POST(req: Request) {
                 return NextResponse.json({ ok: true });
             }
 
-            // Parallelize user fetch and session fetch
-            let [user, session] = await Promise.all([
-                getAuthorizedUser(telegramId, msg.from.username, msg.from.first_name),
-                getSession(chatId)
-            ]);
+            let user = await getAuthorizedUser(telegramId, msg.from.username, msg.from.first_name);
 
             // Fast-track invite links so new users can get authorized before being rejected
             if (text.startsWith('/start invite_')) {
@@ -249,6 +247,8 @@ export async function POST(req: Request) {
                 await bot.sendMessage(chatId, "✅ **Access Granted!** You have been successfully added as an Employee.\n\nType /start to open the car wash menu.");
                 return NextResponse.json({ ok: true });
             }
+
+            console.log('Authorized User search result:', JSON.stringify(user));
 
             if (!user) {
                 console.log(`User ${telegramId} is NOT authorized.`);
@@ -337,7 +337,7 @@ export async function POST(req: Request) {
                     return NextResponse.json({ ok: true });
                 }
 
-                await updateSession(chatId, { step: 'checkout_breaks' });
+                await updateSession(chatId, { step: 'checkout_breaks', basePrice: 0 });
                 await bot.sendMessage(chatId, `🕒 **Checking out...**\nStarted at: ${new Date(activeShift.checkIn).toLocaleTimeString()}\n\n*How many hours of break did you take?*\n(Type a number, e.g. \`0\`, \`0.5\`, \`1\`)`, { parse_mode: 'Markdown' });
                 return NextResponse.json({ ok: true });
             }
@@ -349,7 +349,7 @@ export async function POST(req: Request) {
                     await prisma.inviteToken.create({
                         data: {
                             token,
-                            createdBy: user.telegramId || 'UNKNOWN'
+                            createdBy: user.telegramId ?? chatId
                         }
                     });
                     const botInfo = await bot.getMe();
@@ -363,20 +363,37 @@ export async function POST(req: Request) {
             }
 
             if (text.startsWith('/start')) {
-                console.log(`Resetting session and showing menu for ${chatId}`);
+                console.log(`Resetting session and showing flow menu for ${chatId}`);
                 await resetSession(chatId);
-                await showCarTypeMenu(chatId);
+                await bot.sendMessage(chatId, "🚗 *AutoSpa L'Exception*\n\nWhat would you like to log?", {
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '🚗 Regular Wash', callback_data: 'flow:regular' }],
+                            [{ text: '🏢 Dealer Wash', callback_data: 'flow:dealer' }],
+                        ]
+                    }
+                });
                 return NextResponse.json({ ok: true });
             }
 
             if (text.toLowerCase() === 'cancel' || text.toLowerCase() === 'menu') {
-                console.log(`Resetting session and showing menu for ${chatId}`);
+                console.log(`Resetting session and showing flow menu for ${chatId}`);
                 await resetSession(chatId);
-                await showCarTypeMenu(chatId);
+                await bot.sendMessage(chatId, "🚗 *AutoSpa L'Exception*\n\nWhat would you like to log?", {
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '🚗 Regular Wash', callback_data: 'flow:regular' }],
+                            [{ text: '🏢 Dealer Wash', callback_data: 'flow:dealer' }],
+                        ]
+                    }
+                });
                 return NextResponse.json({ ok: true });
             }
 
             // State Handling for Text Input
+            const session = await getSession(chatId);
             console.log(`Current session step: ${session.step}`);
 
             if (session.step === 'checkout_breaks') {
@@ -386,29 +403,72 @@ export async function POST(req: Request) {
                     return NextResponse.json({ ok: true });
                 }
 
-                const activeShift = await prisma.timeEntry.findFirst({
+                // Temporary storage using Session basePrice for breaks (since basePrice is float)
+                const breakHoursVal = breakHours;
+
+                const activeShiftNow = await prisma.timeEntry.findFirst({
                     where: { userId: user.id, checkOut: null },
                     orderBy: { checkIn: 'desc' }
                 });
 
-                if (activeShift) {
+                if (activeShiftNow) {
                     const checkOutTime = new Date();
-                    const diffMs = checkOutTime.getTime() - activeShift.checkIn.getTime();
+                    const diffMs = checkOutTime.getTime() - activeShiftNow.checkIn.getTime();
                     const diffHours = diffMs / (1000 * 60 * 60);
-                    const totalHours = Math.max(0, diffHours - breakHours);
+                    const totalHours = Math.max(0, diffHours - breakHoursVal);
 
                     await prisma.timeEntry.update({
-                        where: { id: activeShift.id },
+                        where: { id: activeShiftNow.id },
                         data: {
                             checkOut: checkOutTime,
-                            breakHours,
+                            breakHours: breakHoursVal,
                             totalHours
                         }
                     });
 
-                    await bot.sendMessage(chatId, `✅ **Checked Out Successfully!**\n\n🕒 **Shift:** ${new Date(activeShift.checkIn).toLocaleTimeString()} - ${checkOutTime.toLocaleTimeString()}\n☕ **Breaks:** ${breakHours} hrs\n⏱️ **Total Hours:** ${totalHours.toFixed(2)} hrs\n\nGreat job today!`);
+                    await bot.sendMessage(chatId, `✅ **Checked Out Successfully!**\n\n🕒 **Shift:** ${new Date(activeShiftNow.checkIn).toLocaleTimeString()} - ${checkOutTime.toLocaleTimeString()}\n☕ **Breaks:** ${breakHoursVal} hrs\n⏱️ **Total Hours:** ${totalHours.toFixed(2)} hrs\n\nGreat job today!`);
                 }
 
+                await resetSession(chatId);
+                return NextResponse.json({ ok: true });
+            }
+
+            if (session.step === 'dealer_comment') {
+                const comment = text.trim().toLowerCase() === 'skip' ? null : text.trim();
+                if (!session.dealerId || !session.service || session.basePrice === null) {
+                    await bot.sendMessage(chatId, '⚠️ Session expired. Please use /start to try again.');
+                    await resetSession(chatId);
+                    return NextResponse.json({ ok: true });
+                }
+                try {
+                    let openBatch = await prisma.dealerBatch.findFirst({
+                        where: { dealerId: session.dealerId, status: 'OPEN' }
+                    });
+                    if (!openBatch) {
+                        openBatch = await prisma.dealerBatch.create({
+                            data: { dealerId: session.dealerId }
+                        });
+                    }
+                    await prisma.dealerWash.create({
+                        data: {
+                            dealerId: session.dealerId,
+                            batchId: openBatch.id,
+                            serviceName: session.service,
+                            price: session.basePrice,
+                            comments: comment,
+                            senderName: user.username || user.telegramId || chatId,
+                            senderId: user.telegramId ?? chatId,
+                        }
+                    });
+                    const dealer = await prisma.dealer.findUnique({ where: { id: session.dealerId! } });
+                    await bot.sendMessage(chatId,
+                        `✅ *Dealer Wash Saved!*\n\n🏢 *Dealer:* ${dealer?.name}\n🧼 *Service:* ${session.service}\n💰 *Price:* $${session.basePrice.toFixed(2)}${comment ? `\n💬 *Note:* ${comment}` : ''}\n\n/start to log another one.`,
+                        { parse_mode: 'Markdown' }
+                    );
+                } catch (error) {
+                    console.error('Error saving dealer wash:', error);
+                    await bot.sendMessage(chatId, '❌ Failed to save. Please try again.');
+                }
                 await resetSession(chatId);
                 return NextResponse.json({ ok: true });
             }
@@ -561,7 +621,84 @@ export async function POST(req: Request) {
                 }
             }
 
-            await bot.answerCallbackQuery(query.id);
+            else if (data === 'flow:regular') {
+                await bot.answerCallbackQuery(query.id);
+                const keyboard = CAR_TYPES.map(type => ([{ text: type, callback_data: `type:${type}` }]));
+                await bot.editMessageText('🚗 *Select Car Type:*', {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: keyboard }
+                });
+                return NextResponse.json({ ok: true });
+            }
+            else if (data === 'flow:dealer') {
+                await bot.answerCallbackQuery(query.id);
+                const activeDealers = await prisma.dealer.findMany({ where: { isActive: true }, orderBy: { name: 'asc' } });
+                if (activeDealers.length === 0) {
+                    await bot.editMessageText('❌ No dealers configured yet. Ask the owner to add dealers from the dashboard.', {
+                        chat_id: chatId,
+                        message_id: messageId
+                    });
+                    return NextResponse.json({ ok: true });
+                }
+                const keyboard = activeDealers.map(d => [{ text: d.name, callback_data: `sel_dlr:${d.id}` }]);
+                await bot.editMessageText('🏢 *Select Dealer:*', {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: keyboard }
+                });
+                return NextResponse.json({ ok: true });
+            }
+            else if (data.startsWith('sel_dlr:')) {
+                const dealerId = parseInt(data.split(':')[1]);
+                const dealer = await prisma.dealer.findUnique({ where: { id: dealerId } });
+                if (!dealer) {
+                    await bot.answerCallbackQuery(query.id, { text: 'Dealer not found.', show_alert: true });
+                    return NextResponse.json({ ok: true });
+                }
+                await updateSession(chatId, { dealerId, step: 'dealer_select_service' });
+                const services = dealer.services as { name: string; price: number }[];
+                const keyboard = services.map((svc, i) => [{ text: `${svc.name} — $${svc.price}`, callback_data: `dlr_svc:${i}` }]);
+                await bot.editMessageText(`🏢 *${dealer.name}*\n\n🧼 *Select Service:*`, {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: keyboard }
+                });
+                await bot.answerCallbackQuery(query.id);
+                return NextResponse.json({ ok: true });
+            }
+            else if (data.startsWith('dlr_svc:')) {
+                const svcIndex = parseInt(data.split(':')[1]);
+                session = await getSession(chatId);
+                if (!session.dealerId) {
+                    await bot.answerCallbackQuery(query.id, { text: 'Session expired. Use /start.', show_alert: true });
+                    return NextResponse.json({ ok: true });
+                }
+                const dealer = await prisma.dealer.findUnique({ where: { id: session.dealerId } });
+                if (!dealer) {
+                    await bot.answerCallbackQuery(query.id, { text: 'Dealer not found.', show_alert: true });
+                    return NextResponse.json({ ok: true });
+                }
+                const services = dealer.services as { name: string; price: number }[];
+                const selectedSvc = services[svcIndex];
+                if (!selectedSvc) {
+                    await bot.answerCallbackQuery(query.id, { text: 'Service not found.', show_alert: true });
+                    return NextResponse.json({ ok: true });
+                }
+                await updateSession(chatId, { service: selectedSvc.name, basePrice: selectedSvc.price, step: 'dealer_comment' });
+                await bot.editMessageText(
+                    `🏢 *${dealer.name}*\n🧼 *Service:* ${selectedSvc.name} — $${selectedSvc.price}\n\n💬 Add a comment? _(type a note, or type_ \`skip\` _to skip)_`,
+                    { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
+                );
+                await bot.answerCallbackQuery(query.id);
+                return NextResponse.json({ ok: true });
+            }
+            else {
+                await bot.answerCallbackQuery(query.id);
+            }
         }
 
         console.log('--- TELEGRAM WEBHOOK END ---');
