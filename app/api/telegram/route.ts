@@ -128,11 +128,12 @@ function showAddonMenu(chatId: string, messageId: number | undefined, type: stri
     return keyboard;
 }
 
-async function saveWash(chatId: string, user: any, session: any, price: number) {
+async function saveWash(chatId: string, user: any, session: any, price: number, paymentMethod: string) {
     try {
         const addonsArray = session.addons ? JSON.parse(session.addons) : [];
         const addonText = addonsArray.length > 0 ? ` + ${addonsArray.join(' + ')}` : '';
         const addonPriceText = session.totalAddonPrice > 0 ? ` (+$${session.totalAddonPrice})` : '';
+        const payIcon = paymentMethod === 'CARD' ? '💳' : '💵';
 
         const savedWash = await prisma.wash.create({
             data: {
@@ -141,13 +142,14 @@ async function saveWash(chatId: string, user: any, session: any, price: number) 
                 parsedCar: session.carType,
                 parsedService: `${session.service}${addonText}`,
                 parsedPrice: price,
+                paymentMethod,
                 senderName: user.username || user.firstName || 'User',
                 senderId: user.telegramId,
             },
         });
 
         if (bot) {
-            await bot.sendMessage(chatId, `✅ **Saved Entry!**\n\n🚗 **Type:** ${savedWash.carType}\n🧼 **Service:** ${session.service}${addonText}${addonPriceText}\n💰 **Total Price:** $${savedWash.parsedPrice?.toFixed(2)}\n\n/start to log another one.`);
+            await bot.sendMessage(chatId, `✅ *Saved!*\n\n🚗 *Type:* ${savedWash.carType}\n🧼 *Service:* ${session.service}${addonText}${addonPriceText}\n💰 *Total:* $${savedWash.parsedPrice?.toFixed(2)}\n${payIcon} *Payment:* ${paymentMethod}\n\n/start to log another one.`, { parse_mode: 'Markdown' });
         }
         await resetSession(chatId);
     } catch (error) {
@@ -580,13 +582,21 @@ export async function POST(req: Request) {
                     const addonsText = currentAddons.length > 0 ? ` + ${currentAddons.join(' + ')}` : '';
                     const addonsPriceText = (session.totalAddonPrice || 0) > 0 ? ` (+$${session.totalAddonPrice})` : '';
 
-                    await bot.editMessageText(`🚗 **Type:** ${session.carType}\n🧼 **Service:** ${session.service}${addonsText}${addonsPriceText}\n💰 **Total:** $${totalPrice}\n\n✅ *Saving...*`, {
-                        chat_id: chatId,
-                        message_id: messageId,
-                        parse_mode: 'Markdown'
-                    });
-
-                    await saveWash(chatId, user, session, totalPrice);
+                    await updateSession(chatId, { step: 'awaiting_payment' });
+                    await bot.editMessageText(
+                        `🚗 *Type:* ${session.carType}\n🧼 *Service:* ${session.service}${addonsText}${addonsPriceText}\n💰 *Total:* $${totalPrice}\n\n💳 *How did the client pay?*`,
+                        {
+                            chat_id: chatId,
+                            message_id: messageId,
+                            parse_mode: 'Markdown',
+                            reply_markup: {
+                                inline_keyboard: [[
+                                    { text: '💵 Cash', callback_data: 'pay:CASH' },
+                                    { text: '💳 Card', callback_data: 'pay:CARD' }
+                                ]]
+                            }
+                        }
+                    );
                 } else {
                     if (currentAddons.includes(addon)) {
                         await bot.answerCallbackQuery(query.id, {
@@ -694,6 +704,18 @@ export async function POST(req: Request) {
                     { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
                 );
                 await bot.answerCallbackQuery(query.id);
+                return NextResponse.json({ ok: true });
+            }
+            else if (data.startsWith('pay:')) {
+                const paymentMethod = data.split(':')[1];
+                session = await getSession(chatId);
+                const totalPrice = (session.basePrice || 0) + (session.totalAddonPrice || 0);
+                await bot.answerCallbackQuery(query.id);
+                await bot.editMessageText(
+                    `💰 *Total:* $${totalPrice.toFixed(2)}\n${paymentMethod === 'CARD' ? '💳' : '💵'} *Payment:* ${paymentMethod}\n\n✅ *Saving...*`,
+                    { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
+                );
+                await saveWash(chatId, user, session, totalPrice, paymentMethod);
                 return NextResponse.json({ ok: true });
             }
             else {

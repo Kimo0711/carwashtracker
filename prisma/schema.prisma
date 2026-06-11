@@ -25,8 +25,9 @@ model Wash {
   parsedCar       String?
   parsedPrice     Float?
   parsedService   String?
-  carType         String? // New field
-  addons          String? // New field
+  carType         String?
+  addons          String?
+  paymentMethod   String?
   senderName      String
   senderId        String
   createdAt       DateTime @default(now())
