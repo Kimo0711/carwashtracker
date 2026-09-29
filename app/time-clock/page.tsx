@@ -1,18 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { distanceMeters } from "@/lib/checkin";
+import { useEffect, useState } from "react";
+import { distanceMeters } from "../../lib/checkin";
 import {
   EmployeeAccount,
   addPunch,
   addRejectedPunch,
   findEmployeeByCredentials,
-  getEmployeeSession,
   getLastEmployeePunch,
   getNextPunchType,
   getTimeClockStore,
-  setEmployeeSession,
-} from "@/lib/timeClockStorage";
+} from "../../lib/timeClockStorage";
 
 type PunchState = "idle" | "checking" | "done" | "error";
 
@@ -100,28 +98,13 @@ export default function TimeClockPage() {
   const [punchState, setPunchState] = useState<PunchState>("idle");
   const [message, setMessage] = useState("");
   const [attempted, setAttempted] = useState(false);
-  const [setupReady, setSetupReady] = useState(false);
-
-  const store = useMemo(() => getTimeClockStore(), [employee, punchState, attempted]);
-  const setup = store.setup;
-
-  /**
-   * Restores employee session from localStorage when available.
-   */
-  useEffect(() => {
-    const employeeId = getEmployeeSession();
-    if (!employeeId) return;
-    const cachedEmployee = getTimeClockStore().employees.find((item) => item.id === employeeId) ?? null;
-    setEmployee(cachedEmployee);
-  }, []);
-
-  /**
-   * Enables punch operations only after manager setup is fully configured.
-   */
-  useEffect(() => {
+  const [setupReady] = useState(() => {
     const currentStore = getTimeClockStore();
-    setSetupReady(!!currentStore.setup && !!currentStore.managerPassword);
-  }, [punchState, employee]);
+    return !!currentStore.setup && !!currentStore.managerPasswordHash;
+  });
+
+  const store = getTimeClockStore();
+  const setup = store.setup;
 
   /**
    * Automatically runs punch validation as soon as an employee is logged in.
@@ -199,15 +182,14 @@ export default function TimeClockPage() {
   /**
    * Authenticates employee credentials and starts a punch attempt with zero extra input.
    */
-  const handleLogin = () => {
-    const found = findEmployeeByCredentials(email, password);
+  const handleLogin = async () => {
+    const found = await findEmployeeByCredentials(email, password);
     if (!found) {
       setPunchState("error");
       setMessage("Identifiants invalides (Invalid email or password)");
       return;
     }
     setEmployee(found);
-    setEmployeeSession(found.id);
     setAttempted(false);
     setPunchState("idle");
     setMessage("");
@@ -217,7 +199,6 @@ export default function TimeClockPage() {
    * Signs out the employee on this browser.
    */
   const handleLogout = () => {
-    setEmployeeSession(null);
     setEmployee(null);
     setEmail("");
     setPassword("");

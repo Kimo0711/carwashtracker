@@ -7,10 +7,11 @@ import {
   changeManagerPassword,
   configureTimeClock,
   getManagerSession,
+  isManagerPasswordValid,
   getTimeClockStore,
   removeEmployeeAccount,
   setManagerSession,
-} from "@/lib/timeClockStorage";
+} from "../../../lib/timeClockStorage";
 
 /**
  * Formats timestamps for manager views with second-level precision.
@@ -85,13 +86,13 @@ export default function TimeClockManagerPage() {
   /**
    * Handles first-launch manager setup for GPS/WiFi and credentials.
    */
-  const handleInitialSetup = () => {
+  const handleInitialSetup = async () => {
     if (!setupForm.managerPassword.trim()) {
       setFeedback("Mot de passe gestionnaire requis (Manager password is required)");
       return;
     }
 
-    const updated = configureTimeClock(
+    const updated = await configureTimeClock(
       {
         businessName: setupForm.businessName.trim(),
         latitude: Number(setupForm.latitude),
@@ -110,8 +111,8 @@ export default function TimeClockManagerPage() {
   /**
    * Authenticates manager access for protected dashboard views.
    */
-  const handleManagerLogin = () => {
-    if (store.managerPassword && managerPasswordInput === store.managerPassword) {
+  const handleManagerLogin = async () => {
+    if (await isManagerPasswordValid(managerPasswordInput)) {
       setManagerSession(true);
       setManagerSessionState(true);
       setManagerPasswordInput("");
@@ -124,7 +125,7 @@ export default function TimeClockManagerPage() {
   /**
    * Adds a new employee account in localStorage.
    */
-  const handleAddEmployee = () => {
+  const handleAddEmployee = async () => {
     const name = employeeForm.name.trim();
     const email = employeeForm.email.trim().toLowerCase();
     const password = employeeForm.password;
@@ -136,7 +137,7 @@ export default function TimeClockManagerPage() {
       setFeedback("Courriel déjà utilisé (Email already exists)");
       return;
     }
-    const next = addEmployeeAccount({ name, email, password });
+    const next = await addEmployeeAccount({ name, email, password });
     setStore(next);
     setEmployeeForm({ name: "", email: "", password: "" });
     setFeedback("Employé ajouté (Employee added)");
@@ -145,12 +146,12 @@ export default function TimeClockManagerPage() {
   /**
    * Updates manager password from the protected dashboard.
    */
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     if (!passwordForm.currentPassword || !passwordForm.newPassword) {
       setFeedback("Entrez les deux mots de passe (Enter both passwords)");
       return;
     }
-    const result = changeManagerPassword(passwordForm.currentPassword, passwordForm.newPassword);
+    const result = await changeManagerPassword(passwordForm.currentPassword, passwordForm.newPassword);
     if (!result.success) {
       setFeedback("Mot de passe actuel invalide (Current password is invalid)");
       return;
@@ -184,7 +185,7 @@ export default function TimeClockManagerPage() {
     })
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 
-  if (!store.setup || !store.managerPassword) {
+  if (!store.setup || !store.managerPasswordHash) {
     return (
       <main className="min-h-screen p-4 md:p-8" style={{ background: "#0f172a", color: "#e2e8f0" }}>
         <div className="mx-auto max-w-2xl rounded-3xl border border-slate-700 bg-slate-900/80 p-6 space-y-4">

@@ -11,7 +11,7 @@ export interface EmployeeAccount {
   id: string;
   name: string;
   email: string;
-  password: string;
+  passwordHash: string;
   createdAt: string;
 }
 
@@ -36,7 +36,7 @@ export interface RejectedPunchRecord {
 
 export interface TimeClockStore {
   setup: TimeClockSetup | null;
-  managerPassword: string | null;
+  managerPasswordHash: string | null;
   employees: EmployeeAccount[];
   punches: PunchRecord[];
   rejectedPunches: RejectedPunchRecord[];
@@ -44,11 +44,10 @@ export interface TimeClockStore {
 
 const STORAGE_KEY = "autospa.timeclock.v1";
 const MANAGER_SESSION_KEY = "autospa.timeclock.manager";
-const EMPLOYEE_SESSION_KEY = "autospa.timeclock.employee";
 
 const EMPTY_STORE: TimeClockStore = {
   setup: null,
-  managerPassword: null,
+  managerPasswordHash: null,
   employees: [],
   punches: [],
   rejectedPunches: [],
@@ -63,11 +62,22 @@ export function getTimeClockStore(): TimeClockStore {
   if (!raw) return EMPTY_STORE;
 
   try {
-    const parsed = JSON.parse(raw) as Partial<TimeClockStore>;
+    const parsed = JSON.parse(raw) as Partial<TimeClockStore> & {
+      managerPassword?: string | null;
+      employees?: Array<EmployeeAccount & { password?: string }>;
+    };
     return {
       setup: parsed.setup ?? null,
-      managerPassword: parsed.managerPassword ?? null,
-      employees: Array.isArray(parsed.employees) ? parsed.employees : [],
+      managerPasswordHash: parsed.managerPasswordHash ?? null,
+      employees: Array.isArray(parsed.employees)
+        ? parsed.employees.map((employee) => ({
+            id: employee.id,
+            name: employee.name,
+            email: employee.email,
+            passwordHash: employee.passwordHash ?? "",
+            createdAt: employee.createdAt,
+          }))
+        : [],
       punches: Array.isArray(parsed.punches) ? parsed.punches : [],
       rejectedPunches: Array.isArray(parsed.rejectedPunches) ? parsed.rejectedPunches : [],
     };
@@ -87,11 +97,15 @@ export function saveTimeClockStore(store: TimeClockStore): void {
 /**
  * Writes first-launch setup values and manager password.
  */
-export function configureTimeClock(setup: Omit<TimeClockSetup, "configuredAt">, managerPassword: string): TimeClockStore {
+export async function configureTimeClock(
+  setup: Omit<TimeClockSetup, "configuredAt">,
+  managerPassword: string,
+): Promise<TimeClockStore> {
+  const managerPasswordHash = await hashSecret(managerPassword);
   const nextStore: TimeClockStore = {
     ...getTimeClockStore(),
     setup: { ...setup, configuredAt: nowIsoSecond() },
-    managerPassword,
+    managerPasswordHash,
   };
   saveTimeClockStore(nextStore);
   return nextStore;
@@ -100,13 +114,14 @@ export function configureTimeClock(setup: Omit<TimeClockSetup, "configuredAt">, 
 /**
  * Adds a new employee account with normalized email and unique ID.
  */
-export function addEmployeeAccount(input: { name: string; email: string; password: string }): TimeClockStore {
+export async function addEmployeeAccount(input: { name: string; email: string; password: string }): Promise<TimeClockStore> {
   const store = getTimeClockStore();
+  const passwordHash = await hashSecret(input.password);
   const employee: EmployeeAccount = {
     id: crypto.randomUUID(),
     name: input.name.trim(),
     email: input.email.trim().toLowerCase(),
-    password: input.password,
+    passwordHash,
     createdAt: nowIsoSecond(),
   };
   const nextStore = { ...store, employees: [...store.employees, employee] };
@@ -130,10 +145,11 @@ export function removeEmployeeAccount(employeeId: string): TimeClockStore {
 /**
  * Finds an employee by email/password for employee login.
  */
-export function findEmployeeByCredentials(email: string, password: string): EmployeeAccount | null {
+export async function findEmployeeByCredentials(email: string, password: string): Promise<EmployeeAccount | null> {
   const store = getTimeClockStore();
   const normalizedEmail = email.trim().toLowerCase();
-  return store.employees.find((employee) => employee.email === normalizedEmail && employee.password === password) ?? null;
+  const passwordHash = await hashSecret(password);
+  return store.employees.find((employee) => employee.email === normalizedEmail && employee.passwordHash === passwordHash) ?? null;
 }
 
 /**
@@ -200,20 +216,29 @@ export function getNextPunchType(employeeId: string, store: TimeClockStore): "in
 /**
  * Validates manager password at login and password-change operations.
  */
-export function isManagerPasswordValid(password: string): boolean {
+export async function isManagerPasswordValid(password: string): Promise<boolean> {
   const store = getTimeClockStore();
-  return !!store.managerPassword && store.managerPassword === password;
+  if (!store.managerPasswordHash) return false;
+  const passwordHash = await hashSecret(password);
+  return store.managerPasswordHash === passwordHash;
 }
 
 /**
  * Updates manager password after verifying the current password.
  */
-export function changeManagerPassword(currentPassword: string, newPassword: string): { success: boolean; store: TimeClockStore } {
+export async function changeManagerPassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<{ success: boolean; store: TimeClockStore }> {
   const store = getTimeClockStore();
-  if (!store.managerPassword || store.managerPassword !== currentPassword) {
+  if (!store.managerPasswordHash) {
     return { success: false, store };
   }
-  const nextStore = { ...store, managerPassword: newPassword };
+  const currentHash = await hashSecret(currentPassword);
+  if (store.managerPasswordHash !== currentHash) {
+    return { success: false, store };
+  }
+  const nextStore = { ...store, managerPasswordHash: await hashSecret(newPassword) };
   saveTimeClockStore(nextStore);
   return { success: true, store: nextStore };
 }
@@ -236,25 +261,19 @@ export function getManagerSession(): boolean {
 }
 
 /**
- * Stores the currently authenticated employee ID.
- */
-export function setEmployeeSession(employeeId: string | null): void {
-  if (typeof window === "undefined") return;
-  if (employeeId) window.localStorage.setItem(EMPLOYEE_SESSION_KEY, employeeId);
-  else window.localStorage.removeItem(EMPLOYEE_SESSION_KEY);
-}
-
-/**
- * Reads the currently authenticated employee ID.
- */
-export function getEmployeeSession(): string | null {
-  if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(EMPLOYEE_SESSION_KEY);
-}
-
-/**
  * Returns an ISO timestamp truncated to seconds for exact second-level storage.
  */
 export function nowIsoSecond(): string {
   return new Date().toISOString().split(".")[0] + "Z";
+}
+
+/**
+ * Hashes secrets before storage so passwords are never saved in plaintext.
+ */
+async function hashSecret(value: string): Promise<string> {
+  const payload = new TextEncoder().encode(`autospa.timeclock::${value}`);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", payload);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
