@@ -20,6 +20,33 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Employee Time Clock (AutoSpa L'Exception)
+
+- Employee clock screen: `/time-clock`
+- Manager dashboard: `/time-clock/manager`
+
+### WiFi ping setup (required for punch validation)
+
+The manager must host a plain text file named `ping.txt` containing only:
+
+```txt
+ok
+```
+
+Then enter that local URL (for example `http://192.168.1.1/ping.txt`) in the manager setup screen.
+
+Common local hosting options:
+
+1. **Router USB file share**  
+   Example URL: `http://192.168.0.1/ping.txt` (depends on router model and file-sharing settings).
+2. **Raspberry Pi with simple web server**  
+   Example URL: `http://192.168.1.50/ping.txt`.
+3. **NAS local web folder (Synology/QNAP/etc.)**  
+   Example URL: `http://192.168.1.20/ping.txt`.
+
+If the app cannot fetch this file within 3 seconds, punches are rejected with:
+`You must be connected to the shop WiFi`.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
