@@ -15,8 +15,19 @@ model User {
   telegramId  String?     @unique
   username    String?
   role        String      @default("EMPLOYEE") // "OWNER" or "EMPLOYEE"
+  clockToken      String?   @unique // secret held by the employee's linked phone
+  enrollCode      String?   @unique // one-time code from the dashboard to link a phone
+  enrollExpiresAt DateTime?
   createdAt   DateTime    @default(now())
   timeEntries TimeEntry[]
+}
+
+// Single row (id 1): where employees must be to clock in/out
+model ShopSettings {
+  id           Int      @id @default(1)
+  lat          Float?
+  lng          Float?
+  wifiNetworks String[] // public network(s) of the shop Wi-Fi, see networkKey()
 }
 
 model Wash {
@@ -96,5 +107,7 @@ model TimeEntry {
   checkOut   DateTime? // Null if currently checked in
   breakHours Float     @default(0)
   totalHours Float?
+  checkInVia  String? // how presence was verified: "wifi" or "gps 42m" (null = manual/bot entry)
+  checkOutVia String?
   createdAt  DateTime  @default(now())
 }

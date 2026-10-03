@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-    Search, Download, Car, DollarSign, Calendar as CalendarIcon, TrendingUp, Users, Filter, X, Pencil, Trash2, Save, Clock, ChevronLeft, ChevronRight, Building2, Plus, Minus
+    Search, Download, Car, DollarSign, Calendar as CalendarIcon, TrendingUp, Users, Filter, X, Pencil, Trash2, Save, Clock, ChevronLeft, ChevronRight, Building2, Plus, Minus, Smartphone, MapPin, Wifi
 } from 'lucide-react';
+import QRCode from 'react-qr-code';
 import { DayPicker, DateRange } from 'react-day-picker';
 import { format, isWithinInterval, startOfDay, endOfDay, startOfWeek, endOfWeek, addWeeks } from 'date-fns';
 import 'react-day-picker/dist/style.css';
@@ -57,6 +58,14 @@ interface User {
     username: string;
     role: string;
     createdAt: string;
+    phoneLinked: boolean;
+}
+
+interface ShopSettings {
+    lat: number | null;
+    lng: number | null;
+    wifiNetworks: string[];
+    currentNetwork: string | null;
 }
 
 interface TimeEntry {
@@ -67,6 +76,8 @@ interface TimeEntry {
     checkOut: string | null;
     breakHours: number;
     totalHours: number | null;
+    checkInVia: string | null;
+    checkOutVia: string | null;
     createdAt: string;
 }
 
@@ -114,6 +125,10 @@ export default function Dashboard() {
     const [showAddEmployeeModal, setShowAddEmployeeModal] = useState(false);
     const [newEmployeeName, setNewEmployeeName] = useState('');
 
+    // Phone clock-in State
+    const [shop, setShop] = useState<ShopSettings | null>(null);
+    const [phoneLink, setPhoneLink] = useState<{ user: User; url: string } | null>(null);
+
     // Dealers State
     const [dealers, setDealers] = useState<Dealer[]>([]);
     const [showAddDealerModal, setShowAddDealerModal] = useState(false);
@@ -148,7 +163,7 @@ export default function Dashboard() {
     useEffect(() => {
         const loadData = async () => {
             setLoading(true);
-            await Promise.all([fetchWashes(), fetchUsers(), fetchTimeEntries(), fetchDealers()]);
+            await Promise.all([fetchWashes(), fetchUsers(), fetchTimeEntries(), fetchDealers(), fetchShop()]);
             setLoading(false);
         };
         loadData();
@@ -196,6 +211,76 @@ export default function Dashboard() {
             alert('An error occurred.');
         } finally {
             setIsGeneratingInvite(false);
+        }
+    };
+
+    const fetchShop = async () => {
+        try {
+            const res = await fetch('/api/shop-settings');
+            if (res.ok) setShop(await res.json());
+        } catch (error) {
+            console.error('Error fetching shop settings:', error);
+        }
+    };
+
+    const updateShop = async (body: object) => {
+        try {
+            const res = await fetch('/api/shop-settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setShop(data);
+            } else {
+                alert(data.error || 'Failed to update shop settings.');
+            }
+        } catch {
+            alert('An error occurred.');
+        }
+    };
+
+    const setShopLocationHere = () => {
+        if (!confirm('Use where this device is right now as the shop location? Only do this while you are at the shop.')) return;
+        navigator.geolocation.getCurrentPosition(
+            pos => updateShop({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+            () => alert('Could not get your location. Allow location access and try again.'),
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    };
+
+    const addShopWifi = () => {
+        if (!confirm('Save the network this device is on right now as the shop Wi-Fi? Only do this while connected to the shop Wi-Fi.')) return;
+        updateShop({ addCurrentNetwork: true });
+    };
+
+    const linkPhone = async (user: User) => {
+        try {
+            const res = await fetch(`/api/users/${user.id}/enroll`, { method: 'POST' });
+            const data = await res.json();
+            if (res.ok) {
+                setPhoneLink({ user, url: `${window.location.origin}/clock?enroll=${data.code}` });
+            } else {
+                alert(data.error || 'Failed to create phone link.');
+            }
+        } catch {
+            alert('An error occurred.');
+        }
+    };
+
+    const unlinkPhone = async (user: User) => {
+        if (!confirm(`Unlink ${user.username}'s phone? They will not be able to clock in until you link a phone again.`)) return;
+        try {
+            const res = await fetch(`/api/users/${user.id}/enroll`, { method: 'DELETE' });
+            if (res.ok) {
+                setPhoneLink(null);
+                fetchUsers();
+            } else {
+                alert('Failed to unlink phone.');
+            }
+        } catch {
+            alert('An error occurred.');
         }
     };
 
@@ -822,6 +907,69 @@ export default function Dashboard() {
             )}
 
             {activeTab === 'team' && (
+                <div className="space-y-5">
+                <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl">
+                    <h2 className="text-xl font-semibold text-white">Phone Clock-in</h2>
+                    <p className="text-sm text-slate-400 mt-1">
+                        Employees clock in from their linked phone at <span className="font-mono text-slate-300">/clock</span>. It only works on the shop Wi-Fi or within 300m of the shop.
+                    </p>
+                    {shop && shop.lat === null && shop.wifiNetworks.length === 0 && (
+                        <p className="text-sm text-amber-400 mt-3">⚠️ Nothing is set yet, so nobody can clock in. Set the shop location or Wi-Fi below.</p>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                        <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4">
+                            <div className="flex items-center gap-2 text-slate-200 font-semibold text-sm">
+                                <MapPin size={16} className="text-blue-400" />
+                                Shop location
+                            </div>
+                            <p className="text-sm mt-2 font-mono text-slate-400">
+                                {shop && shop.lat !== null && shop.lng !== null
+                                    ? `${shop.lat.toFixed(5)}, ${shop.lng.toFixed(5)}`
+                                    : 'Not set'}
+                            </p>
+                            <button
+                                onClick={setShopLocationHere}
+                                className="mt-3 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg font-medium transition-colors text-sm"
+                            >
+                                Use my current location
+                            </button>
+                        </div>
+                        <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4">
+                            <div className="flex items-center gap-2 text-slate-200 font-semibold text-sm">
+                                <Wifi size={16} className="text-emerald-400" />
+                                Shop Wi-Fi
+                            </div>
+                            {shop && shop.wifiNetworks.length > 0 ? (
+                                <ul className="mt-2 space-y-1">
+                                    {shop.wifiNetworks.map(network => (
+                                        <li key={network} className="flex items-center gap-2 text-sm font-mono text-slate-400">
+                                            {network}
+                                            {network === shop.currentNetwork && <span className="text-emerald-400 text-xs font-sans">you are on it now</span>}
+                                            <button
+                                                onClick={() => updateShop({ removeNetwork: network })}
+                                                className="text-red-400 hover:text-red-300"
+                                                title="Remove network"
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p className="text-sm mt-2 font-mono text-slate-400">Not set</p>
+                            )}
+                            {shop && shop.currentNetwork && !shop.wifiNetworks.includes(shop.currentNetwork) && (
+                                <button
+                                    onClick={addShopWifi}
+                                    className="mt-3 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg font-medium transition-colors text-sm"
+                                >
+                                    Save the network I&apos;m on now ({shop.currentNetwork})
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
                 <div className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
                     <div className="p-6 border-b border-slate-800 flex justify-between items-center">
                         <div>
@@ -870,6 +1018,7 @@ export default function Dashboard() {
                                     <th className="p-5">Telegram ID</th>
                                     <th className="p-5">Joined Date</th>
                                     <th className="p-5">Role</th>
+                                    <th className="p-5">Phone</th>
                                     <th className="p-5 text-right">Actions</th>
                                 </tr>
                             </thead>
@@ -894,6 +1043,19 @@ export default function Dashboard() {
                                                 {user.role}
                                             </span>
                                         </td>
+                                        <td className="p-5">
+                                            <button
+                                                onClick={() => linkPhone(user)}
+                                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${user.phoneLinked
+                                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
+                                                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                                                    }`}
+                                                title={user.phoneLinked ? 'Link a different phone' : 'Link this employee\'s phone'}
+                                            >
+                                                <Smartphone size={14} />
+                                                {user.phoneLinked ? 'Linked' : 'Link phone'}
+                                            </button>
+                                        </td>
                                         <td className="p-5 text-right">
                                             {user.role !== 'OWNER' && (
                                                 <button
@@ -909,7 +1071,7 @@ export default function Dashboard() {
                                 ))}
                                 {users.length === 0 && (
                                     <tr>
-                                        <td colSpan={5} className="p-12 text-center text-slate-500">
+                                        <td colSpan={6} className="p-12 text-center text-slate-500">
                                             No users found.
                                         </td>
                                     </tr>
@@ -917,6 +1079,7 @@ export default function Dashboard() {
                             </tbody>
                         </table>
                     </div>
+                </div>
                 </div>
             )}
 
@@ -926,7 +1089,7 @@ export default function Dashboard() {
                     <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                         <div>
                             <h2 className="text-xl font-semibold text-white">Employee Hours</h2>
-                            <p className="text-sm text-slate-400 mt-1">Automated timesheet tracking based on bot check-ins, or manage manually.</p>
+                            <p className="text-sm text-slate-400 mt-1">Automated timesheet tracking based on phone clock-ins, or manage manually.</p>
                         </div>
                         <div className="flex items-center gap-3 flex-wrap">
                             <div className="flex bg-slate-800 rounded-lg p-1">
@@ -1026,11 +1189,15 @@ export default function Dashboard() {
                                                             <div className="font-semibold text-slate-200 text-sm">{format(checkInDate, 'EEE')}</div>
                                                             <div className="text-slate-600 text-xs">{format(checkInDate, 'MMM d')}</div>
                                                         </td>
-                                                        <td className="p-3 text-slate-200 font-mono text-sm">{format(checkInDate, 'H:mm')}</td>
+                                                        <td className="p-3 text-slate-200 font-mono text-sm">
+                                                            {format(checkInDate, 'H:mm')}
+                                                            {entry.checkInVia && <div className="text-slate-600 text-xs">{entry.checkInVia}</div>}
+                                                        </td>
                                                         <td className="p-3 font-mono text-sm">
                                                             {checkOutDate
                                                                 ? <span className="text-slate-200">{format(checkOutDate, 'H:mm')}</span>
                                                                 : <span className="text-amber-400 text-xs font-bold tracking-wide">● ACTIVE</span>}
+                                                            {entry.checkOutVia && <div className="text-slate-600 text-xs">{entry.checkOutVia}</div>}
                                                         </td>
                                                         <td className="p-3 text-slate-400 text-sm">{entry.breakHours}h</td>
                                                         <td className="p-3 font-bold text-blue-400 text-sm">
@@ -1089,7 +1256,7 @@ export default function Dashboard() {
                             <p className="font-medium">No shifts recorded for this week.</p>
                             <p className="text-xs mt-1 text-slate-600">
                                 {weekOffset === 0
-                                    ? 'Employees need to use /checkin and /checkout.'
+                                    ? 'Employees clock in and out from their linked phone.'
                                     : 'No data for this period. Try navigating to a different week.'}
                             </p>
                         </div>
@@ -1570,6 +1737,45 @@ export default function Dashboard() {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Link Phone Modal */}
+            {phoneLink && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xl font-bold text-white">Link {phoneLink.user.username}&apos;s phone</h3>
+                            <button onClick={() => { setPhoneLink(null); fetchUsers(); }} className="text-slate-500 hover:text-white">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="rounded-2xl p-4 bg-white flex justify-center">
+                            <QRCode value={phoneLink.url} size={220} />
+                        </div>
+                        <p className="text-sm text-slate-400 mt-4">
+                            Have {phoneLink.user.username} scan this with their own phone while you watch. It works once, expires in 15 minutes, and replaces any phone linked before.
+                        </p>
+                        <div className="flex gap-3 pt-4">
+                            <button
+                                onClick={() => {
+                                    navigator.clipboard.writeText(phoneLink.url);
+                                    alert('Link Copied!');
+                                }}
+                                className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-medium transition-colors"
+                            >
+                                Copy Link
+                            </button>
+                            {phoneLink.user.phoneLinked && (
+                                <button
+                                    onClick={() => unlinkPhone(phoneLink.user)}
+                                    className="flex-1 py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-xl font-medium transition-colors"
+                                >
+                                    Unlink phone
+                                </button>
+                            )}
+                        </div>
                     </div>
                 </div>
             )}

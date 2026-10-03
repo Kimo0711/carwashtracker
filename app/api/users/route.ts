@@ -17,9 +17,11 @@ export async function GET() {
                 username: true,
                 role: true,
                 createdAt: true,
+                clockToken: true,
             }
         });
-        return NextResponse.json(users);
+        // Never send the phone token to the dashboard, only whether a phone is linked
+        return NextResponse.json(users.map(({ clockToken, ...user }) => ({ ...user, phoneLinked: !!clockToken })));
     } catch (error) {
         console.error('Failed to fetch users:', error);
         return NextResponse.json({ error: 'Failed to fetch users' }, { status: 500 });

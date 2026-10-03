@@ -1,12 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-
-interface Employee {
-  id: number;
-  username: string | null;
-  telegramId: string | null;
-}
+import { useEffect, useState, useCallback, useRef } from 'react';
 
 function formatDuration(checkIn: string): string {
   const ms = Date.now() - new Date(checkIn).getTime();
@@ -16,10 +10,16 @@ function formatDuration(checkIn: string): string {
   return `${m}m`;
 }
 
+function postClock(coords: { lat?: number; lng?: number }) {
+  return fetch('/api/clock', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(coords),
+  });
+}
+
 export default function ClockPage() {
-  const [phase, setPhase] = useState<'loading' | 'setup' | 'confirm-setup' | 'ready' | 'confirming' | 'done' | 'error'>('loading');
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [userId, setUserId] = useState<number | null>(null);
+  const [phase, setPhase] = useState<'loading' | 'unlinked' | 'ready' | 'confirming' | 'done' | 'error'>('loading');
   const [username, setUsername] = useState('');
   const [clockedIn, setClockedIn] = useState(false);
   const [checkInTime, setCheckInTime] = useState<string | null>(null);
@@ -27,12 +27,17 @@ export default function ClockPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [resultMsg, setResultMsg] = useState('');
   const [resultAction, setResultAction] = useState<'in' | 'out' | null>(null);
-  const [pendingEmployee, setPendingEmployee] = useState<Employee | null>(null);
 
-  const loadStatus = useCallback(async (uid: number) => {
+  const loadStatus = useCallback(async () => {
     try {
-      const res = await fetch(`/api/clock?userId=${uid}`);
+      const res = await fetch('/api/clock');
       const data = await res.json();
+      if (!res.ok) throw new Error();
+      if (!data.linked) {
+        setPhase('unlinked');
+        return;
+      }
+      setUsername(data.username ?? '');
       setClockedIn(data.clockedIn);
       setCheckInTime(data.checkIn ?? null);
       setPhase('ready');
@@ -42,26 +47,43 @@ export default function ClockPage() {
     }
   }, []);
 
-  useEffect(() => {
-    const storedId = localStorage.getItem('cw_uid');
-    const storedName = localStorage.getItem('cw_name');
+  const started = useRef(false);
 
-    if (storedId && storedName) {
-      setUserId(parseInt(storedId));
-      setUsername(storedName);
-      loadStatus(parseInt(storedId));
-    } else {
-      fetch('/api/users')
-        .then((r) => r.json())
-        .then((data: Employee[]) => {
-          setEmployees(data.filter((e) => e.username));
-          setPhase('setup');
-        })
-        .catch(() => {
-          setErrorMsg('Failed to load employees. Try again.');
-          setPhase('error');
-        });
+  useEffect(() => {
+    // The one-time code must only be sent once, even when React re-runs effects in dev
+    if (started.current) return;
+    started.current = true;
+
+    // Opened from the owner's one-time link: link this phone first, then drop the code from the URL
+    const code = new URLSearchParams(window.location.search).get('enroll');
+    if (!code) {
+      loadStatus();
+      return;
     }
+
+    window.history.replaceState(null, '', '/clock');
+    fetch('/api/clock/enroll', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          // A used or expired link is harmless on a phone that is already linked
+          const data = await res.json();
+          const status = await fetch('/api/clock').then((r) => r.json());
+          if (!status.linked) {
+            setErrorMsg(data.error || 'Failed to link this phone.');
+            setPhase('error');
+            return;
+          }
+        }
+        loadStatus();
+      })
+      .catch(() => {
+        setErrorMsg('Network error. Please try again.');
+        setPhase('error');
+      });
   }, [loadStatus]);
 
   // Elapsed timer when clocked in
@@ -73,43 +95,34 @@ export default function ClockPage() {
     return () => clearInterval(interval);
   }, [clockedIn, checkInTime]);
 
-  function selectEmployee(emp: Employee) {
-    setPendingEmployee(emp);
-    setUsername(emp.username ?? '');
-    setPhase('confirm-setup');
-  }
-
-  function confirmSetup() {
-    if (!pendingEmployee) return;
-    localStorage.setItem('cw_uid', pendingEmployee.id.toString());
-    localStorage.setItem('cw_name', pendingEmployee.username ?? '');
-    setUserId(pendingEmployee.id);
-    loadStatus(pendingEmployee.id);
-  }
-
   async function handleClock() {
     setPhase('confirming');
 
-    let lat: number | undefined;
-    let lng: number | undefined;
-
     try {
-      const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000 })
-      );
-      lat = pos.coords.latitude;
-      lng = pos.coords.longitude;
-    } catch {
-      // If location denied and shop coords are set, server will reject
-    }
+      // On the shop Wi-Fi this succeeds straight away; otherwise the server asks for GPS
+      let res = await postClock({});
+      let data = await res.json();
 
-    try {
-      const res = await fetch('/api/clock', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, lat, lng }),
-      });
-      const data = await res.json();
+      if (res.status === 403 && data.needsLocation) {
+        try {
+          const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: true,
+              timeout: 10000,
+              maximumAge: 0,
+            })
+          );
+          res = await postClock({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          data = await res.json();
+        } catch {
+          // Location denied or unavailable — show the server's explanation
+        }
+      }
+
+      if (res.status === 401) {
+        setPhase('unlinked');
+        return;
+      }
 
       if (!res.ok) {
         setErrorMsg(data.error || 'Something went wrong.');
@@ -129,12 +142,6 @@ export default function ClockPage() {
       setErrorMsg('Network error. Please try again.');
       setPhase('error');
     }
-  }
-
-  function resetDevice() {
-    localStorage.removeItem('cw_uid');
-    localStorage.removeItem('cw_name');
-    window.location.reload();
   }
 
   // ── Loading ───────────────────────────────────────────────────────────────
@@ -164,62 +171,16 @@ export default function ClockPage() {
     );
   }
 
-  // ── First-time setup: pick your name ──────────────────────────────────────
-  if (phase === 'setup') {
-    return (
-      <div className="min-h-screen flex flex-col" style={{ background: '#0f172a', color: '#f1f5f9' }}>
-        <div className="p-6 pb-2">
-          <h1 className="text-2xl font-bold">AutoSpa <span style={{ color: '#38bdf8' }}>L&apos;Exception</span></h1>
-          <p className="mt-1 text-sm" style={{ color: '#94a3b8' }}>Select your name to set up this device</p>
-        </div>
-        <div
-          className="mx-6 mt-3 rounded-2xl p-4"
-          style={{ background: '#1e293b', border: '1px solid #92400e' }}
-        >
-          <p className="text-sm" style={{ color: '#fbbf24' }}>
-            ⚠️ Select YOUR name only. This device will always clock in as whoever you pick.
-          </p>
-        </div>
-        <div className="flex flex-col gap-3 p-6">
-          {employees.map((emp) => (
-            <button
-              key={emp.id}
-              onClick={() => selectEmployee(emp)}
-              className="w-full py-4 px-5 rounded-2xl text-left font-semibold text-lg transition-all active:scale-95"
-              style={{ background: '#1e293b', border: '1px solid #334155', color: '#f1f5f9' }}
-            >
-              {emp.username}
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // ── Confirm identity ───────────────────────────────────────────────────────
-  if (phase === 'confirm-setup') {
+  // ── Phone not linked to an employee ───────────────────────────────────────
+  if (phase === 'unlinked') {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-8 gap-6" style={{ background: '#0f172a', color: '#f1f5f9' }}>
-        <div
-          className="w-24 h-24 rounded-full flex items-center justify-center text-4xl font-bold"
-          style={{ background: '#0ea5e9', color: '#fff' }}
-        >
-          {username.charAt(0).toUpperCase()}
-        </div>
-        <p className="text-2xl font-bold text-center">{username}</p>
-        <p className="text-sm text-center" style={{ color: '#94a3b8' }}>
-          This device will always clock in as <strong>{username}</strong>.
+        <h1 className="text-2xl font-bold">AutoSpa <span style={{ color: '#38bdf8' }}>L&apos;Exception</span></h1>
+        <div className="text-5xl">📱</div>
+        <h2 className="text-xl font-bold text-center">This phone is not set up yet</h2>
+        <p className="text-center" style={{ color: '#94a3b8' }}>
+          Ask the owner to link this phone to your name. They will show you a code to scan.
         </p>
-        <button
-          onClick={confirmSetup}
-          className="w-full py-4 rounded-2xl font-bold text-xl transition-all active:scale-95"
-          style={{ background: '#0ea5e9', color: '#fff' }}
-        >
-          Yes, that&apos;s me
-        </button>
-        <button onClick={() => setPhase('setup')} className="text-sm" style={{ color: '#64748b' }}>
-          Go back
-        </button>
       </div>
     );
   }
@@ -229,7 +190,7 @@ export default function ClockPage() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-8 gap-4" style={{ background: '#0f172a', color: '#f1f5f9' }}>
         <div className="w-12 h-12 border-4 border-sky-400 border-t-transparent rounded-full animate-spin" />
-        <p style={{ color: '#94a3b8' }}>Verifying location…</p>
+        <p style={{ color: '#94a3b8' }}>Checking you are at the shop…</p>
       </div>
     );
   }
@@ -314,14 +275,8 @@ export default function ClockPage() {
         </button>
 
         <p className="text-xs text-center" style={{ color: '#475569' }}>
-          Your location will be verified automatically
+          Works on the shop Wi-Fi, or with location turned on at the shop
         </p>
-      </div>
-
-      <div className="p-6 text-center">
-        <button onClick={resetDevice} className="text-xs" style={{ color: '#334155' }}>
-          Not {username}? Reset this device
-        </button>
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
-import { distanceMeters } from '../../../lib/checkin';
+import { CLOCK_COOKIE, clientIp, shopLocation, verifyPresence } from '../../../lib/checkin';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,22 +8,32 @@ const globalForPrisma = global as unknown as { prisma: PrismaClient };
 const prisma = globalForPrisma.prisma || new PrismaClient();
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
-// GET /api/clock?userId=X — returns current open entry if any
-export async function GET(request: Request) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const userId = parseInt(searchParams.get('userId') || '');
+// The employee is whoever this phone was linked to — never taken from the request body
+async function linkedUser(request: NextRequest) {
+  const token = request.cookies.get(CLOCK_COOKIE)?.value;
+  if (!token) return null;
+  return prisma.user.findUnique({ where: { clockToken: token } });
+}
 
-    if (isNaN(userId)) {
-      return NextResponse.json({ error: 'Invalid userId' }, { status: 400 });
+// GET /api/clock — who this phone is linked to, and their current open entry if any
+export async function GET(request: NextRequest) {
+  try {
+    const user = await linkedUser(request);
+    if (!user) {
+      return NextResponse.json({ linked: false });
     }
 
     const openEntry = await prisma.timeEntry.findFirst({
-      where: { userId, checkOut: null },
+      where: { userId: user.id, checkOut: null },
       orderBy: { checkIn: 'desc' },
     });
 
-    return NextResponse.json({ clockedIn: !!openEntry, checkIn: openEntry?.checkIn ?? null });
+    return NextResponse.json({
+      linked: true,
+      username: user.username,
+      clockedIn: !!openEntry,
+      checkIn: openEntry?.checkIn ?? null,
+    });
   } catch (error) {
     console.error('Clock status error:', error);
     return NextResponse.json({ error: 'Failed to get status' }, { status: 500 });
@@ -31,35 +41,24 @@ export async function GET(request: Request) {
 }
 
 // POST /api/clock — clock in or out
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { userId, lat, lng } = body;
-
-    if (!userId) {
-      return NextResponse.json({ error: 'Missing userId' }, { status: 400 });
+    const user = await linkedUser(request);
+    if (!user) {
+      return NextResponse.json({ error: 'This phone is not linked to an employee.' }, { status: 401 });
     }
 
-    // Location check — enforced when SHOP_LAT and SHOP_LNG are configured
-    const shopLat = parseFloat(process.env.SHOP_LAT || '0');
-    const shopLng = parseFloat(process.env.SHOP_LNG || '0');
+    const { lat, lng } = await request.json().catch(() => ({}));
 
-    if (shopLat !== 0 && shopLng !== 0) {
-      if (typeof lat !== 'number' || typeof lng !== 'number') {
-        return NextResponse.json({ error: 'Location permission is required to clock in.' }, { status: 400 });
-      }
-      const dist = distanceMeters(lat, lng, shopLat, shopLng);
-      if (dist > 300) {
-        return NextResponse.json(
-          { error: `You must be at the shop to clock in/out. (${Math.round(dist)}m away)` },
-          { status: 403 }
-        );
-      }
+    // Presence check — the phone must be on the shop Wi-Fi or within range of the shop
+    const shop = shopLocation(await prisma.shopSettings.findUnique({ where: { id: 1 } }));
+    const presence = verifyPresence(shop, clientIp(request), lat, lng);
+    if ('error' in presence) {
+      return NextResponse.json(presence, { status: 403 });
     }
 
-    const uid = parseInt(userId);
     const openEntry = await prisma.timeEntry.findFirst({
-      where: { userId: uid, checkOut: null },
+      where: { userId: user.id, checkOut: null },
       orderBy: { checkIn: 'desc' },
     });
 
@@ -70,13 +69,13 @@ export async function POST(request: Request) {
 
       const entry = await prisma.timeEntry.update({
         where: { id: openEntry.id },
-        data: { checkOut: now, totalHours },
+        data: { checkOut: now, totalHours, checkOutVia: presence.via },
       });
 
       return NextResponse.json({ action: 'out', entry });
     } else {
       const entry = await prisma.timeEntry.create({
-        data: { userId: uid, checkIn: new Date(), breakHours: 0 },
+        data: { userId: user.id, checkIn: new Date(), breakHours: 0, checkInVia: presence.via },
       });
 
       return NextResponse.json({ action: 'in', entry });
