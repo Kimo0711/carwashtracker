@@ -10,12 +10,14 @@ function formatDuration(checkIn: string): string {
   return `${m}m`;
 }
 
-function postClock(coords: { lat?: number; lng?: number }) {
-  return fetch('/api/clock', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(coords),
-  });
+function getPosition(highAccuracy: boolean) {
+  return new Promise<GeolocationPosition>((resolve, reject) =>
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: highAccuracy,
+      timeout: 10000,
+      maximumAge: 0,
+    })
+  );
 }
 
 export default function ClockPage() {
@@ -98,26 +100,31 @@ export default function ClockPage() {
   async function handleClock() {
     setPhase('confirming');
 
+    let pos: GeolocationPosition;
     try {
-      // On the shop Wi-Fi this succeeds straight away; otherwise the server asks for GPS
-      let res = await postClock({});
-      let data = await res.json();
+      // GPS first; indoors it can time out, so fall back to the phone's network-based position
+      pos = await getPosition(true).catch((err: GeolocationPositionError) => {
+        if (err.code === 1) throw err;
+        return getPosition(false);
+      });
+    } catch (err) {
+      const denied = (err as GeolocationPositionError).code === 1;
+      setErrorMsg(
+        denied
+          ? 'Location is blocked for this page. Allow location access, then try again.'
+          : 'Could not get your location. Turn on location on your phone, then try again.'
+      );
+      setPhase('error');
+      return;
+    }
 
-      if (res.status === 403 && data.needsLocation) {
-        try {
-          const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-            navigator.geolocation.getCurrentPosition(resolve, reject, {
-              enableHighAccuracy: true,
-              timeout: 10000,
-              maximumAge: 0,
-            })
-          );
-          res = await postClock({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-          data = await res.json();
-        } catch {
-          // Location denied or unavailable — show the server's explanation
-        }
-      }
+    try {
+      const res = await fetch('/api/clock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      });
+      const data = await res.json();
 
       if (res.status === 401) {
         setPhase('unlinked');
@@ -275,7 +282,7 @@ export default function ClockPage() {
         </button>
 
         <p className="text-xs text-center" style={{ color: '#475569' }}>
-          Works on the shop Wi-Fi, or with location turned on at the shop
+          Your location is checked: you must be at the shop
         </p>
       </div>
     </div>

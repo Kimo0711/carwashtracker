@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-    Search, Download, Car, DollarSign, Calendar as CalendarIcon, TrendingUp, Users, Filter, X, Pencil, Trash2, Save, Clock, ChevronLeft, ChevronRight, Building2, Plus, Minus, Smartphone, MapPin, Wifi
+    Search, Download, Car, DollarSign, Calendar as CalendarIcon, TrendingUp, Users, Filter, X, Pencil, Trash2, Save, Clock, ChevronLeft, ChevronRight, Building2, Plus, Minus, Smartphone, MapPin
 } from 'lucide-react';
 import QRCode from 'react-qr-code';
 import { DayPicker, DateRange } from 'react-day-picker';
@@ -64,8 +64,6 @@ interface User {
 interface ShopSettings {
     lat: number | null;
     lng: number | null;
-    wifiNetworks: string[];
-    currentNetwork: string | null;
 }
 
 interface TimeEntry {
@@ -223,18 +221,18 @@ export default function Dashboard() {
         }
     };
 
-    const updateShop = async (body: object) => {
+    const saveShopLocation = async (lat: number, lng: number) => {
         try {
             const res = await fetch('/api/shop-settings', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
+                body: JSON.stringify({ lat, lng }),
             });
             const data = await res.json();
             if (res.ok) {
                 setShop(data);
             } else {
-                alert(data.error || 'Failed to update shop settings.');
+                alert(data.error || 'Failed to save shop location.');
             }
         } catch {
             alert('An error occurred.');
@@ -244,15 +242,10 @@ export default function Dashboard() {
     const setShopLocationHere = () => {
         if (!confirm('Use where this device is right now as the shop location? Only do this while you are at the shop.')) return;
         navigator.geolocation.getCurrentPosition(
-            pos => updateShop({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+            pos => saveShopLocation(pos.coords.latitude, pos.coords.longitude),
             () => alert('Could not get your location. Allow location access and try again.'),
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
         );
-    };
-
-    const addShopWifi = () => {
-        if (!confirm('Save the network this device is on right now as the shop Wi-Fi? Only do this while connected to the shop Wi-Fi.')) return;
-        updateShop({ addCurrentNetwork: true });
     };
 
     const linkPhone = async (user: User) => {
@@ -911,12 +904,12 @@ export default function Dashboard() {
                 <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl">
                     <h2 className="text-xl font-semibold text-white">Phone Clock-in</h2>
                     <p className="text-sm text-slate-400 mt-1">
-                        Employees clock in from their linked phone at <span className="font-mono text-slate-300">/clock</span>. It only works on the shop Wi-Fi or within 300m of the shop.
+                        Employees clock in from their linked phone at <span className="font-mono text-slate-300">/clock</span>. It only works within 300m of the shop.
                     </p>
-                    {shop && shop.lat === null && shop.wifiNetworks.length === 0 && (
-                        <p className="text-sm text-amber-400 mt-3">⚠️ Nothing is set yet, so nobody can clock in. Set the shop location or Wi-Fi below.</p>
+                    {shop && shop.lat === null && (
+                        <p className="text-sm text-amber-400 mt-3">⚠️ The shop location is not set yet, so nobody can clock in. Set it below while you are at the shop.</p>
                     )}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                    <div className="mt-4">
                         <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4">
                             <div className="flex items-center gap-2 text-slate-200 font-semibold text-sm">
                                 <MapPin size={16} className="text-blue-400" />
@@ -933,39 +926,6 @@ export default function Dashboard() {
                             >
                                 Use my current location
                             </button>
-                        </div>
-                        <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4">
-                            <div className="flex items-center gap-2 text-slate-200 font-semibold text-sm">
-                                <Wifi size={16} className="text-emerald-400" />
-                                Shop Wi-Fi
-                            </div>
-                            {shop && shop.wifiNetworks.length > 0 ? (
-                                <ul className="mt-2 space-y-1">
-                                    {shop.wifiNetworks.map(network => (
-                                        <li key={network} className="flex items-center gap-2 text-sm font-mono text-slate-400">
-                                            {network}
-                                            {network === shop.currentNetwork && <span className="text-emerald-400 text-xs font-sans">you are on it now</span>}
-                                            <button
-                                                onClick={() => updateShop({ removeNetwork: network })}
-                                                className="text-red-400 hover:text-red-300"
-                                                title="Remove network"
-                                            >
-                                                <X size={14} />
-                                            </button>
-                                        </li>
-                                    ))}
-                                </ul>
-                            ) : (
-                                <p className="text-sm mt-2 font-mono text-slate-400">Not set</p>
-                            )}
-                            {shop && shop.currentNetwork && !shop.wifiNetworks.includes(shop.currentNetwork) && (
-                                <button
-                                    onClick={addShopWifi}
-                                    className="mt-3 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg font-medium transition-colors text-sm"
-                                >
-                                    Save the network I&apos;m on now ({shop.currentNetwork})
-                                </button>
-                            )}
                         </div>
                     </div>
                 </div>

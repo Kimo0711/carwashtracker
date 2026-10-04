@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
-import { CLOCK_COOKIE, clientIp, shopLocation, verifyPresence } from '../../../lib/checkin';
+import { CLOCK_COOKIE, shopLocation, verifyPresence } from '../../../lib/checkin';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,9 +50,9 @@ export async function POST(request: NextRequest) {
 
     const { lat, lng } = await request.json().catch(() => ({}));
 
-    // Presence check — the phone must be on the shop Wi-Fi or within range of the shop
+    // Presence check — the phone must be within range of the shop
     const shop = shopLocation(await prisma.shopSettings.findUnique({ where: { id: 1 } }));
-    const presence = verifyPresence(shop, clientIp(request), lat, lng);
+    const presence = verifyPresence(shop, lat, lng);
     if ('error' in presence) {
       return NextResponse.json(presence, { status: 403 });
     }
